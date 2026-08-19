@@ -146,17 +146,17 @@
     <div class="loss-box">
       <div class="loss-label">今動けば請求できる可能性がある金額</div>
       <div class="loss-amount">50万〜200万円</div>
-      <div class="loss-sub">証拠収集を専門家に任せた人の多くがこの金額を回収しています</div>
+      <div class="loss-sub">正しい順番で証拠を固めた人の多くがこの金額を回収しています</div>
     </div>
     <div class="ng-box">🚫 <strong>絶対にやってはいけないこと</strong><br>感情的に問い詰める・スマホを勝手に見る・周囲に話す。これをやった瞬間に証拠が消え、慰謝料が取れなくなります。</div>
     <div class="step-box">
       <div class="step-box-title">✅ 証拠がない人が今すぐやるべき3ステップ</div>
       <div class="step-item"><span class="step-num">1</span>普段通りに振る舞い、気づいていることを悟らせない</div>
       <div class="step-item"><span class="step-num">2</span>帰宅時間・外出頻度・スマホの扱い方を日付付きでメモ</div>
-      <div class="step-item"><span class="step-num">3</span>探偵選びのプロに無料相談（どの探偵社を選ぶかも一緒に考えてもらえる）</div>
+      <div class="step-item"><span class="step-num">3</span>証拠の集め方から請求の進め方までを、このあとのnoteでまとめて確認する</div>
     </div>
     <div class="evidence-box">
-      <div class="evidence-box-title">専門家が取れる法的に有効な証拠の例</div>
+      <div class="evidence-box-title">法的に有効な証拠の例</div>
       <div class="ev-item"><span class="ev-check">✓</span>ホテルへの出入りを撮影した写真・動画</div>
       <div class="ev-item"><span class="ev-check">✓</span>性的関係を示唆するLINEのやり取り</div>
       <div class="ev-item"><span class="ev-check">✓</span>探偵が作成した調査報告書（裁判でも有効）</div>
@@ -186,18 +186,18 @@
 
 <div class="fixed-cta" id="fixed-cta">
   <div class="fixed-cta-tel-reason">
-    <span class="tel-reason-item" id="cta-reason-title">📞 今すぐ相談がおすすめな理由</span>
-    <span class="tel-reason-point" id="cta-reason-1">✓ 最短即日で動いてもらえる・証拠が消える前に対策できる</span>
-    <span class="tel-reason-point" id="cta-reason-2">✓ 相談だけなら完全無料・依頼の強制なし・秘密厳守</span>
+    <span class="tel-reason-item" id="cta-reason-title">📖 今すぐ読んでおきたい理由</span>
+    <span class="tel-reason-point" id="cta-reason-1">✓ 証拠が消える前に、正しい順番がすべてわかります</span>
+    <span class="tel-reason-point" id="cta-reason-2">✓ 今すぐ読める・匿名OK</span>
   </div>
-  <a class="fixed-cta-btn" id="fixed-cta-btn" href="#" target="_blank">今すぐ無料で専門家に相談する →</a>
-  <div class="fixed-cta-sub">24時間365日受付・匿名OK</div>
+  <a class="fixed-cta-btn" id="fixed-cta-btn" href="#" target="_blank">詳しく見る →</a>
+  <div class="fixed-cta-sub">今すぐ読めます・匿名OK</div>
 </div>
 
 <script>
-// アフィリリンク
-const LINK_TANKAKU = 'https://px.a8.net/svt/ejp?a8mat=4BA41A+4GR242+5BYA+5Z6WX'; // 街角相談所（証拠なし・低額）
-const LINK_BENGOSHI = 'https://px.a8.net/svt/ejp?a8mat=4BA41A+4GR242+5BYA+5Z6WX'; // 弁護士（審査通ったら差し替え、今は街角）
+// 診断額に応じた誘導先note（150万円が分岐点）
+const LINK_LOW_NOTE  = 'https://note.com/kankeikaisekira/n/n97bd51a0ac20'; // 150万円未満・証拠なし → 証拠固めに特化した安価note（¥980）
+const LINK_HIGH_NOTE = 'https://note.com/kankeikaisekira/n/na9c80bdb1d6d'; // 150万円以上 → 浮気調査マニュアル（9,800円・フル版）
 
 const questions = [
   { id:'evidence', eyebrow:'Question 1 / 8', text:'証拠はありますか？', note:'慰謝料請求の可否を左右する最重要項目です',
@@ -306,15 +306,15 @@ function nextStep(){
   const q=questions[step];
   answers[q.id]={value:selectedOpt.value, score:selectedOpt.score, label:selectedOpt.label, question:q.text};
 
-  // 証拠なし → 街角相談所
+  // 証拠なし → 証拠固め特化の安価note（低額側と同じ導線）
   if(q.id==='evidence' && selectedOpt.value==='none'){
     hide('quiz'); show('no-evidence');
     setCTA(
-      LINK_TANKAKU,
-      '無料で探偵選びのプロに相談する →',
-      '📞 探偵選びのプロに相談がおすすめな理由',
-      '✓ どの探偵社を選べばいいか一緒に考えてもらえる・完全無料',
-      '✓ まだ依頼しなくていい・相談だけでOK・秘密厳守'
+      LINK_LOW_NOTE,
+      '診断額を自分で引き上げる方法を見る →',
+      '📖 証拠がない今だからこそ知ってほしいこと',
+      '✓ 正しい順番で動けば、今からでも証拠は集められます',
+      '✓ 感情的に動く前に、まずやるべき3ステップがあります'
     );
     return;
   }
@@ -347,24 +347,23 @@ function showResult(){
 
   let tag, note, link, ctaText, reasonTitle, reason1, reason2;
 
+  // 150万円を境に、誘導先note（オファー）を切り替える
   if(total>=150){
-    // 高額 → 弁護士（今は街角で代替）
-    tag='高額請求が見込めます';
-    note=total+'万〜'+high+'万円の請求が見込めます。証拠がある今が動き時です。感情的に問い詰める前に、今すぐ専門家に相談してください。相手に先手を打たれると請求額が大幅に下がります。';
-    link=LINK_BENGOSHI;
-    ctaText=total+'万円を取り戻す方法を今すぐ無料確認 →';
-    reasonTitle='📞 今すぐ専門家に相談すべき理由';
-    reason1='✓ 証拠がある今が請求の最大チャンス・時間が経つほど不利になる';
-    reason2='✓ 相談だけなら完全無料・依頼の強制なし・秘密厳守';
+    tag='高額請求が狙える強いケースです';
+    note=total+'万〜'+high+'万円は、決して低い数字ではありません。ただし、強いケースほど「感情的な問い詰め」や「示談交渉のミス」で金額を大きく落としてしまう人が多いのも事実です。証拠固めから請求・示談書までを取りこぼさずに進める方法を、このあとまとめて解説しています。';
+    link=LINK_HIGH_NOTE;
+    ctaText=total+'万円を取りこぼさない進め方を見る →';
+    reasonTitle='📖 このタイミングで知っておきたい理由';
+    reason1='✓ 証拠固め→請求→示談書までの全手順を1つにまとめています';
+    reason2='✓ 弁護士に依頼する前に、自分でどこまでできるかがわかります';
   } else {
-    // 低額 → 街角相談所
-    tag='請求できる可能性があります';
-    note=total+'万〜'+high+'万円が目安です。専門家の交渉で増額できる余地があります。証拠の取り方・請求の進め方を今すぐ無料で確認してください。';
-    link=LINK_TANKAKU;
-    ctaText='無料で'+total+'万円の請求方法を確認する →';
-    reasonTitle='📞 探偵選びのプロに相談がおすすめな理由';
-    reason1='✓ 証拠収集から請求まで最適な専門家を無料で紹介してもらえる';
-    reason2='✓ 相談だけならOK・依頼の強制なし・秘密厳守';
+    tag='証拠を強化すれば増額の余地があります';
+    note=total+'万〜'+high+'万円が現時点の目安です。この金額は、証拠の強さと動くタイミング次第で今からでも引き上げられます。逆にここで感情的に動いてしまうと、この金額すら取れなくなる可能性があります。';
+    link=LINK_LOW_NOTE;
+    ctaText='診断額を自分で引き上げる方法を見る →';
+    reasonTitle='📖 今の金額を引き上げるためにやるべきこと';
+    reason1='✓ 何を、いつ、どう記録すればいいかが全部わかります';
+    reason2='✓ 弁護士・探偵に頼む前に、自分でできることから始められます';
   }
 
   document.getElementById('r-tag').textContent=tag;
