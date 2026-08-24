@@ -96,7 +96,6 @@
 <body>
 <div class="card">
 
-  <!-- イントロ -->
   <div id="intro">
     <div class="intro-eyebrow">無料診断</div>
     <div class="intro-title"><em>いくら</em>取れる？<br>慰謝料シミュレーター</div>
@@ -122,7 +121,6 @@
     <div class="disclaimer">※個人情報不要・匿名OK・登録なし・完全無料</div>
   </div>
 
-  <!-- クイズ -->
   <div id="quiz" class="hidden">
     <div class="progress-wrap">
       <div class="progress-meta"><span id="q-count"></span><span id="q-pct"></span></div>
@@ -135,7 +133,6 @@
     <button class="next-btn" id="next-btn" disabled>次へ →</button>
   </div>
 
-  <!-- 証拠なし結果 -->
   <div id="no-evidence" class="hidden">
     <div class="result-eyebrow">診断結果</div>
     <div class="warn-icon">⚠️</div>
@@ -167,7 +164,6 @@
     <button class="reset-btn" id="reset-btn-1">最初からやり直す</button>
   </div>
 
-  <!-- 通常結果 -->
   <div id="result" class="hidden">
     <div class="result-eyebrow">診断結果</div>
     <div class="result-box">
@@ -261,7 +257,7 @@ function getLineId() {
 function sendToLine(lineId, amount) {
   if (!lineId) return;
   const url = GAS_URL + '?lineId=' + encodeURIComponent(lineId) + '&amount=' + encodeURIComponent(amount);
-  fetch(url, { mode: 'no-cors' });
+  new Image().src = url;
 }
 
 function startQuiz(){
