@@ -14,7 +14,7 @@
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    padding: 0 0 140px 0;
+    padding: 0 0 60px 0;
   }
   .card { background: #fff; width: 100%; max-width: 100%; padding: 20px 18px; }
   .hidden { display: none; }
@@ -59,11 +59,6 @@
   .loss-amount { font-size: 28px; font-weight: 800; color: #c0392b; }
   .loss-sub { font-size: 11px; color: #aaa; margin-top: 4px; line-height: 1.6; }
   .ng-box { background: #fffbf0; border-left: 3px solid #f39c12; border-radius: 0 6px 6px 0; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; color: #666; line-height: 1.7; }
-  .evidence-box { background: #fafafa; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
-  .evidence-box-title { font-size: 11px; color: #aaa; margin-bottom: 10px; }
-  .ev-item { display: flex; gap: 8px; padding: 7px 0; font-size: 13px; color: #444; border-bottom: 1px solid #eee; align-items: flex-start; }
-  .ev-item:last-child { border-bottom: none; }
-  .ev-check { color: #27ae60; flex-shrink: 0; }
   .step-box { background: #f0f7ff; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
   .step-box-title { font-size: 11px; color: #1a73e8; font-weight: 700; margin-bottom: 10px; }
   .step-item { display: flex; gap: 10px; padding: 6px 0; font-size: 12px; color: #444; align-items: flex-start; border-bottom: 1px solid #e0eeff; }
@@ -91,10 +86,17 @@
   .line-sent-box { background: #f0fff4; border: 1.5px solid #b2dfdb; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; text-align: center; }
   .line-sent-box p { font-size: 13px; color: #2e7d32; font-weight: 700; margin-bottom: 4px; }
   .line-sent-box span { font-size: 12px; color: #666; }
+  .evidence-box { background: #fafafa; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+  .evidence-box-title { font-size: 11px; color: #aaa; margin-bottom: 10px; }
+  .ev-item { display: flex; gap: 8px; padding: 7px 0; font-size: 13px; color: #444; border-bottom: 1px solid #eee; align-items: flex-start; }
+  .ev-item:last-child { border-bottom: none; }
+  .ev-check { color: #27ae60; flex-shrink: 0; }
 </style>
 </head>
 <body>
 <div class="card">
+
+  <!-- イントロ -->
   <div id="intro">
     <div class="intro-eyebrow">無料診断</div>
     <div class="intro-title"><em>いくら</em>取れる？<br>慰謝料シミュレーター</div>
@@ -120,6 +122,7 @@
     <div class="disclaimer">※個人情報不要・匿名OK・登録なし・完全無料</div>
   </div>
 
+  <!-- クイズ -->
   <div id="quiz" class="hidden">
     <div class="progress-wrap">
       <div class="progress-meta"><span id="q-count"></span><span id="q-pct"></span></div>
@@ -132,6 +135,7 @@
     <button class="next-btn" id="next-btn" disabled>次へ →</button>
   </div>
 
+  <!-- 証拠なし結果 -->
   <div id="no-evidence" class="hidden">
     <div class="result-eyebrow">診断結果</div>
     <div class="warn-icon">⚠️</div>
@@ -150,6 +154,12 @@
       <div class="step-item"><span class="step-num">2</span>帰宅時間・外出頻度・スマホの扱い方を日付付きでメモ</div>
       <div class="step-item"><span class="step-num">3</span>詳しい手順はLINEにお送りしました。ご確認ください。</div>
     </div>
+    <div class="evidence-box">
+      <div class="evidence-box-title">法的に有効な証拠の例</div>
+      <div class="ev-item"><span class="ev-check">✓</span>ホテルへの出入りを撮影した写真・動画</div>
+      <div class="ev-item"><span class="ev-check">✓</span>性的関係を示唆するLINEのやり取り</div>
+      <div class="ev-item"><span class="ev-check">✓</span>探偵が作成した調査報告書（裁判でも有効）</div>
+    </div>
     <div class="line-sent-box">
       <p>📩 LINEに詳細をお送りしました</p>
       <span>公式LINEのトークを確認してください</span>
@@ -157,6 +167,7 @@
     <button class="reset-btn" id="reset-btn-1">最初からやり直す</button>
   </div>
 
+  <!-- 通常結果 -->
   <div id="result" class="hidden">
     <div class="result-eyebrow">診断結果</div>
     <div class="result-box">
@@ -179,10 +190,11 @@
     <button class="reset-btn" id="reset-btn-2">最初からやり直す</button>
     <div class="result-disclaimer">※この結果は判例をもとにした簡易診断です。実際の金額は個別事情により大きく異なります。</div>
   </div>
+
 </div>
 
 <script>
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbx0RK_jNCXsYd99brMFguFZSY4Bf8YZ8UhzTOS_FR2IHE0VEt2ZUQyDNS_mlVJljDry/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbyYPjluGX3OFFKSA6JRIaAMy1hC_U_SI0Rcszjguca8IqLno-4CELWGVaeqMrvoWv7Z/exec';
 
 const questions = [
   { id:'evidence', eyebrow:'Question 1 / 8', text:'証拠はありますか？', note:'慰謝料請求の可否を左右する最重要項目です',
@@ -242,12 +254,14 @@ let step=0, answers={}, selectedOpt=null;
 function show(id){ document.getElementById(id).classList.remove('hidden'); }
 function hide(id){ document.getElementById(id).classList.add('hidden'); }
 
+function getLineId() {
+  return new URLSearchParams(window.location.search).get('lineId');
+}
+
 function sendToLine(lineId, amount) {
   if (!lineId) return;
-  fetch(GAS_URL + '?lineId=' + encodeURIComponent(lineId) + '&amount=' + encodeURIComponent(amount))
-    .then(r => r.text())
-    .then(t => console.log('LINE送信結果:', t))
-    .catch(err => console.error('LINE送信エラー:', err));
+  const url = GAS_URL + '?lineId=' + encodeURIComponent(lineId) + '&amount=' + encodeURIComponent(amount);
+  fetch(url, { mode: 'no-cors' });
 }
 
 function startQuiz(){
@@ -292,9 +306,7 @@ function nextStep(){
 
   if(q.id==='evidence' && selectedOpt.value==='none'){
     hide('quiz'); show('no-evidence');
-    const urlParams = new URLSearchParams(window.location.search);
-    const lineId = urlParams.get('lineId');
-    sendToLine(lineId, '50万〜200万円（証拠なし）');
+    sendToLine(getLineId(), '50万〜200万円（証拠なし）');
     return;
   }
   if(step<questions.length-1){ step++; renderQ(); }
@@ -303,9 +315,6 @@ function nextStep(){
 
 function showResult(){
   hide('quiz'); show('result');
-
-  const urlParams = new URLSearchParams(window.location.search);
-  const lineId = urlParams.get('lineId');
 
   let base=100;
   if(answers.divorce){
@@ -326,19 +335,19 @@ function showResult(){
   }
   total=Math.max(50, Math.round(total/50)*50);
   const high=total+50;
-  const amountText = total+'万〜'+high+'万円';
+  const amountText=total+'万〜'+high+'万円';
 
   document.getElementById('r-amount').textContent=amountText;
 
-  sendToLine(lineId, amountText);
+  sendToLine(getLineId(), amountText);
 
   let tag, note;
   if(total>=150){
     tag='高額請求が狙える強いケースです';
-    note=total+'万〜'+high+'万円は、決して低い数字ではありません。ただし、強いケースほど「感情的な問い詰め」や「示談交渉のミス」で金額を大きく落としてしまう人が多いのも事実です。詳しい進め方はLINEにお送りしました。';
+    note='詳しい進め方はLINEにお送りしました。証拠固めから請求・示談書まで、正しい手順で進めれば'+amountText+'は十分狙えます。不安なことがあればLINEのトークに返信してください。';
   } else {
     tag='証拠を強化すれば増額の余地があります';
-    note=total+'万〜'+high+'万円が現時点の目安です。この金額は、証拠の強さと動くタイミング次第で今からでも引き上げられます。詳しい手順はLINEにお送りしました。';
+    note='現時点の目安は'+amountText+'です。証拠の強さとタイミング次第で増額できます。詳しい手順はLINEにお送りしました。まずトークを確認してください。';
   }
 
   document.getElementById('r-tag').textContent=tag;
