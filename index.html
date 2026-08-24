@@ -88,18 +88,9 @@
   .s-a { font-size: 12px; color: #333; text-align: right; }
   .reset-btn { width: 100%; background: none; border: none; color: #bbb; font-size: 12px; cursor: pointer; font-family: inherit; padding: 8px; }
   .result-disclaimer { font-size: 10px; color: #ccc; text-align: center; margin-top: 10px; line-height: 1.6; }
-  .fixed-cta { position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; padding: 12px 16px 24px; background: #fff; box-shadow: 0 -4px 20px rgba(0,0,0,0.12); display: none; }
-  .fixed-cta.show { display: block; }
-  .fixed-cta-tel-reason { background: #fff8f8; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
-  .tel-reason-item { font-size: 11px; font-weight: 700; color: #c0392b; margin-bottom: 2px; }
-  .tel-reason-point { font-size: 12px; color: #555; line-height: 1.5; }
-  .fixed-cta-btn { display: block; width: 100%; padding: 16px; background: #c0392b; color: #fff; border: none; border-radius: 10px; font-size: 16px; font-weight: 800; cursor: pointer; font-family: inherit; text-align: center; text-decoration: none; box-shadow: 0 4px 14px rgba(192,57,43,0.4); animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100% { box-shadow: 0 4px 14px rgba(192,57,43,0.4); } 50% { box-shadow: 0 4px 22px rgba(192,57,43,0.65); } }
-  .fixed-cta-sub { text-align: center; font-size: 11px; color: #aaa; margin-top: 7px; }
-  .tantei-box { background: #fff; border: 1.5px solid #f0d0d0; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
-  .tantei-title { font-size: 12px; font-weight: 700; color: #c0392b; margin-bottom: 6px; }
-  .tantei-desc { font-size: 12px; color: #666; line-height: 1.7; margin-bottom: 10px; }
-  .tantei-btn { display: block; width: 100%; padding: 11px; background: #fff; border: 1.5px solid #c0392b; color: #c0392b; border-radius: 8px; font-size: 13px; font-weight: 700; text-align: center; text-decoration: none; }
+  .line-sent-box { background: #f0fff4; border: 1.5px solid #b2dfdb; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; text-align: center; }
+  .line-sent-box p { font-size: 13px; color: #2e7d32; font-weight: 700; margin-bottom: 4px; }
+  .line-sent-box span { font-size: 12px; color: #666; }
 </style>
 </head>
 <body>
@@ -157,18 +148,11 @@
       <div class="step-box-title">✅ 証拠がない人が今すぐやるべき3ステップ</div>
       <div class="step-item"><span class="step-num">1</span>普段通りに振る舞い、気づいていることを悟らせない</div>
       <div class="step-item"><span class="step-num">2</span>帰宅時間・外出頻度・スマホの扱い方を日付付きでメモ</div>
-      <div class="step-item"><span class="step-num">3</span>証拠の集め方から請求の進め方までを、このあとのnoteでまとめて確認する</div>
+      <div class="step-item"><span class="step-num">3</span>詳しい手順はLINEにお送りしました。ご確認ください。</div>
     </div>
-    <div class="evidence-box">
-      <div class="evidence-box-title">法的に有効な証拠の例</div>
-      <div class="ev-item"><span class="ev-check">✓</span>ホテルへの出入りを撮影した写真・動画</div>
-      <div class="ev-item"><span class="ev-check">✓</span>性的関係を示唆するLINEのやり取り</div>
-      <div class="ev-item"><span class="ev-check">✓</span>探偵が作成した調査報告書（裁判でも有効）</div>
-    </div>
-    <div class="tantei-box">
-      <div class="tantei-title">🕵️ 自分で集める時間がない方へ</div>
-      <div class="tantei-desc">仕事や育児で記録を続ける時間が取れない、確実にプロへ任せたい——という場合は、探偵に直接相談する方法もあります。</div>
-      <a class="tantei-btn" id="tantei-link" href="#" target="_blank">無料で探偵に相談する →</a>
+    <div class="line-sent-box">
+      <p>📩 LINEに詳細をお送りしました</p>
+      <span>公式LINEのトークを確認してください</span>
     </div>
     <button class="reset-btn" id="reset-btn-1">最初からやり直す</button>
   </div>
@@ -186,6 +170,10 @@
       <div class="urgency-item"><span class="urgency-dot">▸</span>問い詰めた瞬間に<strong>証拠が消される</strong>・その後は請求不可になるケースも</div>
       <div class="urgency-item"><span class="urgency-dot">▸</span>相手に先手を打たれると<strong>請求額が大幅に下がります</strong></div>
     </div>
+    <div class="line-sent-box">
+      <p>📩 診断結果をLINEにお送りしました</p>
+      <span>公式LINEのトークを確認してください</span>
+    </div>
     <div class="result-note" id="r-note"></div>
     <div class="summary" id="summary"></div>
     <button class="reset-btn" id="reset-btn-2">最初からやり直す</button>
@@ -193,21 +181,8 @@
   </div>
 </div>
 
-<div class="fixed-cta" id="fixed-cta">
-  <div class="fixed-cta-tel-reason">
-    <span class="tel-reason-item" id="cta-reason-title">📖 今すぐ読んでおきたい理由</span>
-    <span class="tel-reason-point" id="cta-reason-1">✓ 証拠が消える前に、正しい順番がすべてわかります</span>
-    <span class="tel-reason-point" id="cta-reason-2">✓ 今すぐ読める・匿名OK</span>
-  </div>
-  <a class="fixed-cta-btn" id="fixed-cta-btn" href="#" target="_blank">詳しく見る →</a>
-  <div class="fixed-cta-sub">今すぐ読めます・匿名OK</div>
-</div>
-
 <script>
-// 診断額に応じた誘導先note（150万円が分岐点）
-const LINK_LOW_NOTE  = 'https://note.com/kankeikaisekira/n/n97bd51a0ac20'; // 150万円未満・証拠なし → 証拠固めに特化した安価note（¥980）
-const LINK_HIGH_NOTE = 'https://note.com/kankeikaisekira/n/na9c80bdb1d6d'; // 150万円以上 → 浮気調査マニュアル（9,800円・フル版）
-const LINK_TANTEI    = 'https://px.a8.net/svt/ejp?a8mat=4BA41A+4GR242+5BYA+5Z6WX'; // 探偵アフィリ（証拠なしルートのセカンダリ導線）
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbx0RK_jNCXsYd99brMFguFZSY4Bf8YZ8UhzTOS_FR2IHE0VEt2ZUQyDNS_mlVJljDry/exec';
 
 const questions = [
   { id:'evidence', eyebrow:'Question 1 / 8', text:'証拠はありますか？', note:'慰謝料請求の可否を左右する最重要項目です',
@@ -267,13 +242,12 @@ let step=0, answers={}, selectedOpt=null;
 function show(id){ document.getElementById(id).classList.remove('hidden'); }
 function hide(id){ document.getElementById(id).classList.add('hidden'); }
 
-function setCTA(link, btnText, reasonTitle, reason1, reason2){
-  document.getElementById('fixed-cta-btn').href = link;
-  document.getElementById('fixed-cta-btn').textContent = btnText;
-  document.getElementById('cta-reason-title').textContent = reasonTitle;
-  document.getElementById('cta-reason-1').textContent = reason1;
-  document.getElementById('cta-reason-2').textContent = reason2;
-  document.getElementById('fixed-cta').classList.add('show');
+function sendToLine(lineId, amount) {
+  if (!lineId) return;
+  fetch(GAS_URL + '?lineId=' + encodeURIComponent(lineId) + '&amount=' + encodeURIComponent(amount))
+    .then(r => r.text())
+    .then(t => console.log('LINE送信結果:', t))
+    .catch(err => console.error('LINE送信エラー:', err));
 }
 
 function startQuiz(){
@@ -316,17 +290,11 @@ function nextStep(){
   const q=questions[step];
   answers[q.id]={value:selectedOpt.value, score:selectedOpt.score, label:selectedOpt.label, question:q.text};
 
-  // 証拠なし → 証拠固め特化の安価note（低額側と同じ導線）＋探偵アフィリをセカンダリ表示
   if(q.id==='evidence' && selectedOpt.value==='none'){
     hide('quiz'); show('no-evidence');
-    document.getElementById('tantei-link').href = LINK_TANTEI;
-    setCTA(
-      LINK_LOW_NOTE,
-      '診断額を自分で引き上げる方法を見る →',
-      '📖 証拠がない今だからこそ知ってほしいこと',
-      '✓ 正しい順番で動けば、今からでも証拠は集められます',
-      '✓ 感情的に動く前に、まずやるべき3ステップがあります'
-    );
+    const urlParams = new URLSearchParams(window.location.search);
+    const lineId = urlParams.get('lineId');
+    sendToLine(lineId, '50万〜200万円（証拠なし）');
     return;
   }
   if(step<questions.length-1){ step++; renderQ(); }
@@ -335,6 +303,10 @@ function nextStep(){
 
 function showResult(){
   hide('quiz'); show('result');
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const lineId = urlParams.get('lineId');
+
   let base=100;
   if(answers.divorce){
     if(answers.divorce.value==='yes') base=200;
@@ -354,32 +326,23 @@ function showResult(){
   }
   total=Math.max(50, Math.round(total/50)*50);
   const high=total+50;
-  document.getElementById('r-amount').textContent=total+'万〜'+high+'万円';
+  const amountText = total+'万〜'+high+'万円';
 
-  let tag, note, link, ctaText, reasonTitle, reason1, reason2;
+  document.getElementById('r-amount').textContent=amountText;
 
-  // 150万円を境に、誘導先note（オファー）を切り替える
+  sendToLine(lineId, amountText);
+
+  let tag, note;
   if(total>=150){
     tag='高額請求が狙える強いケースです';
-    note=total+'万〜'+high+'万円は、決して低い数字ではありません。ただし、強いケースほど「感情的な問い詰め」や「示談交渉のミス」で金額を大きく落としてしまう人が多いのも事実です。証拠固めから請求・示談書までを取りこぼさずに進める方法を、このあとまとめて解説しています。';
-    link=LINK_HIGH_NOTE;
-    ctaText=total+'万円を取りこぼさない進め方を見る →';
-    reasonTitle='📖 このタイミングで知っておきたい理由';
-    reason1='✓ 証拠固め→請求→示談書までの全手順を1つにまとめています';
-    reason2='✓ 弁護士に依頼する前に、自分でどこまでできるかがわかります';
+    note=total+'万〜'+high+'万円は、決して低い数字ではありません。ただし、強いケースほど「感情的な問い詰め」や「示談交渉のミス」で金額を大きく落としてしまう人が多いのも事実です。詳しい進め方はLINEにお送りしました。';
   } else {
     tag='証拠を強化すれば増額の余地があります';
-    note=total+'万〜'+high+'万円が現時点の目安です。この金額は、証拠の強さと動くタイミング次第で今からでも引き上げられます。逆にここで感情的に動いてしまうと、この金額すら取れなくなる可能性があります。';
-    link=LINK_LOW_NOTE;
-    ctaText='診断額を自分で引き上げる方法を見る →';
-    reasonTitle='📖 今の金額を引き上げるためにやるべきこと';
-    reason1='✓ 何を、いつ、どう記録すればいいかが全部わかります';
-    reason2='✓ 弁護士・探偵に頼む前に、自分でできることから始められます';
+    note=total+'万〜'+high+'万円が現時点の目安です。この金額は、証拠の強さと動くタイミング次第で今からでも引き上げられます。詳しい手順はLINEにお送りしました。';
   }
 
   document.getElementById('r-tag').textContent=tag;
   document.getElementById('r-note').textContent=note;
-  setCTA(link, ctaText, reasonTitle, reason1, reason2);
 
   let html='<div class="summary-head">あなたの回答</div>';
   for(var id in answers){
@@ -390,7 +353,6 @@ function showResult(){
 
 function doReset(){
   step=0; answers={}; selectedOpt=null;
-  document.getElementById('fixed-cta').classList.remove('show');
   ['no-evidence','result','quiz'].forEach(function(id){ hide(id); });
   show('intro');
 }
