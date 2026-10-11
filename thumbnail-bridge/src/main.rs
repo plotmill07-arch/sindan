@@ -37,7 +37,8 @@ fn main() -> ExitCode {
         Some("export") => export(&args[1..]),
         Some("doctor") => doctor(),
         Some("-h" | "--help" | "help") | None => {
-            println!("{USAGE}");
+            use std::io::Write;
+            let _ = writeln!(std::io::stdout(), "{USAGE}");
             Ok(())
         }
         Some(other) => Err(format!("unknown command `{other}`\n\n{USAGE}")),
@@ -239,7 +240,10 @@ fn inspect(a: &[String]) -> Result<(), String> {
         "layers": layer_tree(&doc),
         "bridge": record(&doc),
     });
-    println!("{}", serde_json::to_string_pretty(&v).map_err(e2s)?);
+    {
+        use std::io::Write;
+        let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string_pretty(&v).map_err(e2s)?);
+    }
     Ok(())
 }
 
@@ -286,13 +290,16 @@ fn export(a: &[String]) -> Result<(), String> {
 }
 
 fn doctor() -> Result<(), String> {
+    use std::io::Write;
+    // A closed pipe (`plotmill doctor | head`) is not an error worth a panic.
+    let mut out = std::io::stdout().lock();
     for (k, v) in models::status() {
-        println!("{k}: {v}");
+        let _ = writeln!(out, "{k}: {v}");
     }
     let faces = plotmill_bridge::fontmatch::japanese_faces();
-    println!("Japanese fonts: {} faces", faces.len());
+    let _ = writeln!(out, "Japanese fonts: {} faces", faces.len());
     for f in &faces {
-        println!("  {} / {} ({})", f.family, f.style, f.weight);
+        let _ = writeln!(out, "  {} / {} ({})", f.family, f.style, f.weight);
     }
     let _ = document::META_KEY;
     Ok(())

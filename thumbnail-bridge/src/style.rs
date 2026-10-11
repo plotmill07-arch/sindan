@@ -269,8 +269,8 @@ pub fn analyze(img: &Rgba8, line: &OcrLine) -> Option<LineStyle> {
         let mc: Vec<bool> = (0..n).map(|i| ink[i] && label[i] == c).collect();
         let (clab, cnc) = components(cw, ch, &mc);
         let mut off = vec![false; cnc as usize + 1];
-        for i in 0..n {
-            let l = clab[i] as usize;
+        for (i, &l) in clab.iter().enumerate() {
+            let l = l as usize;
             if l > 0 && !off[l] && reach_edge(i) {
                 off[l] = true;
             }
@@ -427,7 +427,7 @@ pub fn analyze(img: &Rgba8, line: &OcrLine) -> Option<LineStyle> {
         let ws = box_blur(cw, ch, &wgt, r, 2);
         let mut chans = Vec::new();
         for c in 0..3 {
-            let v: Vec<f32> = (0..n).map(|i| px[i][c] * wgt[i]).collect();
+            let v: Vec<f32> = px.iter().zip(&wgt).map(|(p, w)| p[c] * w).collect();
             chans.push(box_blur(cw, ch, &v, r, 2));
         }
         (0..n).map(|i| {
@@ -460,7 +460,6 @@ pub fn analyze(img: &Rgba8, line: &OcrLine) -> Option<LineStyle> {
             fill_ids.iter().any(|&f| dist2(px[i], cents[f]) < d_other)
         })
         .collect();
-    let fill_mask = fill_mask;
     // Fill pieces wholly outside the text box belong to something else.
     let fill_mask: Vec<bool> = {
         let (fl, fnc) = components(cw, ch, &fill_mask);

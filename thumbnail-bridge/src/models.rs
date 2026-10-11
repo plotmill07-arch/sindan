@@ -107,12 +107,35 @@ pub fn init_runtime() -> Result<()> {
         let lib = find_ort_lib().ok_or_else(|| {
             "ONNX Runtime library not found: run scripts/setup.sh, or set PLOTMILL_ORT_LIB to libonnxruntime".to_string()
         })?;
+        guard_telemetry(&lib)?;
         let builder = ort::init_from(&lib).map_err(|e| format!("loading ONNX Runtime from {}: {e}", lib.display()))?;
+        // Never send usage data anywhere (also covers Windows ETW trace events).
         // `commit` returns false when an environment already exists (fine: it is reused).
-        let _ = builder.with_name("plotmill").commit();
+        let _ = builder.with_name("plotmill").with_telemetry(false).commit();
         Ok(())
     });
     r.clone().map_err(Error::Model)
+}
+
+/// ONNX Runtime 1.29+ official builds upload telemetry to Microsoft (1DS) on Linux and macOS
+/// unless `ORT_DISABLE_TELEMETRY=1` is set before the library initialises; the API switch may
+/// come after a first event. The bridge must never send anything: refuse such a library unless
+/// that variable is set. `scripts/setup.sh` installs 1.28.0, which has no uploader.
+pub fn guard_telemetry(lib: &Path) -> std::result::Result<(), String> {
+    let bytes = std::fs::read(lib).map_err(|e| format!("reading {}: {e}", lib.display()))?;
+    if has_uploader(&bytes) && std::env::var("ORT_DISABLE_TELEMETRY").ok().as_deref() != Some("1") {
+        return Err(format!(
+            "{} contains ONNX Runtime's telemetry uploader; refusing to load it. Run scripts/setup.sh (installs the telemetry-free 1.28.0 build) or set ORT_DISABLE_TELEMETRY=1",
+            lib.display()
+        ));
+    }
+    Ok(())
+}
+
+/// The 1DS collector endpoint compiled into telemetry-enabled ONNX Runtime builds.
+pub fn has_uploader(bytes: &[u8]) -> bool {
+    const NEEDLES: [&[u8]; 2] = [b"events.data.microsoft.com", b"OneCollector"];
+    NEEDLES.iter().any(|n| bytes.windows(n.len()).any(|w| w == *n))
 }
 
 /// Verify a file's SHA-256 against the pinned digest.
@@ -176,7 +199,11 @@ pub fn status() -> Vec<(String, String)> {
     v.push((
         "ONNX Runtime".to_string(),
         match find_ort_lib() {
-            Some(p) => format!("ok: {}", p.display()),
+            Some(p) => match std::fs::read(&p).map(|b| has_uploader(&b)) {
+                Ok(false) => format!("ok (no telemetry uploader): {}", p.display()),
+                Ok(true) => format!("contains a telemetry uploader — will not be loaded without ORT_DISABLE_TELEMETRY=1: {}", p.display()),
+                Err(e) => format!("unreadable: {e}"),
+            },
             None => "missing (run scripts/setup.sh)".into(),
         },
     ));
@@ -193,4 +220,15 @@ pub fn status() -> Vec<(String, String)> {
         v.push((format!("{} — {}", m.file, m.what), s));
     }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uploader_detection() {
+        assert!(has_uploader(b"xx https://mobile.events.data.microsoft.com/OneCollector/1.0/ yy"));
+        assert!(!has_uploader(b"plain onnx runtime bytes"));
+    }
 }

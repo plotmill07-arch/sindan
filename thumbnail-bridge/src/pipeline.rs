@@ -192,8 +192,8 @@ pub fn decompose(engines: &Engines, input: &Rgba8, opts: &Options, progress: &(d
     for p in &mut src.px {
         if p[3] < 255 {
             let a = p[3] as f32 / 255.0;
-            for c in 0..3 {
-                p[c] = (p[c] as f32 * a + 255.0 * (1.0 - a)).round() as u8;
+            for v in p.iter_mut().take(3) {
+                *v = (*v as f32 * a + 255.0 * (1.0 - a)).round() as u8;
             }
             p[3] = 255;
         }

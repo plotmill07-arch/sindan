@@ -1,0 +1,1243 @@
+diff --git a/apps/photocraft/Cargo.toml b/apps/photocraft/Cargo.toml
+index c031c44..fd71012 100644
+--- a/apps/photocraft/Cargo.toml
++++ b/apps/photocraft/Cargo.toml
+@@ -11,6 +11,11 @@ build = "build.rs"
+ # Open HEIC/HEIF photos (the optional photocraft-heif crate). Not default so distributors choose
+ # it; official builds (CI, packaging/, release) build with `--features heif`.
+ heif = ["photocraft-codecs/heif"]
++# File › Import › AI Thumbnails (Plotmill AI Thumbnail Bridge): local OCR, person cut-out and
++# editable text recovery. Native only; the ONNX Runtime library and models are loaded at run time
++# from the files the bridge's scripts/setup.sh fetches (nothing is downloaded by the build).
++ai-thumbnail = ["dep:plotmill-bridge"]
++default = ["ai-thumbnail"]
+ 
+ [lints]
+ workspace = true
+@@ -36,6 +41,7 @@ log = { workspace = true }
+ 
+ [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ rfd = { workspace = true }
++plotmill-bridge = { path = "../../../..", optional = true }
+ arboard = { version = "3.6", features = ["wayland-data-control"] }
+ open = "5"
+ # Reads the saved window layout (eframe persistence) to drop values that would abort startup.
+diff --git a/apps/photocraft/src/ai_thumbnail.rs b/apps/photocraft/src/ai_thumbnail.rs
+new file mode 100644
+index 0000000..bff6c91
+--- /dev/null
++++ b/apps/photocraft/src/ai_thumbnail.rs
+@@ -0,0 +1,49 @@
++//! File › Import › AI Thumbnails: the native side of `photocraft_ui_egui::ai_thumbnail_ui`,
++//! backed by the Plotmill AI Thumbnail Bridge (local ONNX OCR / segmentation, font matching
++//! through PhotoCraft's own type engine). Models load once, on first use, from the folder the
++//! bridge's `scripts/setup.sh` fills; nothing is sent over the network.
++
++use std::sync::atomic::AtomicBool;
++use std::sync::{Arc, OnceLock};
++
++use photocraft_ui_egui::ai_thumbnail_ui::{Outcome, Progress, Request, Service};
++use plotmill_bridge::{Canvas, Engines, Options, Stage};
++use serde_json::{Value, json};
++
++static ENGINES: OnceLock<Result<Engines, String>> = OnceLock::new();
++
++fn run(req: Request, progress: Progress<'_>, cancel: &AtomicBool) -> Result<Outcome, String> {
++    let t = std::time::Instant::now();
++    progress("AIモデルを読み込み中");
++    let engines = ENGINES.get_or_init(|| Engines::load().map_err(|e| e.to_string())).as_ref().map_err(Clone::clone)?;
++    let img = plotmill_bridge::decode_image(&req.name, &req.bytes).map_err(|e| e.to_string())?;
++    let o = &req.options;
++    let opts = Options {
++        canvas: if o["canvas"].as_str() == Some("original") { Canvas::Original } else { Canvas::Youtube },
++        person: o["person"].as_bool().unwrap_or(true),
++        decorations: o["decorations"].as_bool().unwrap_or(true),
++        ..Default::default()
++    };
++    let stem = std::path::Path::new(&req.name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "thumbnail".into());
++    let on_stage = |s: Stage| progress(s.label_ja());
++    let (document, d) = plotmill_bridge::convert_image(engines, &stem, &img, &opts, &on_stage, cancel).map_err(|e| e.to_string())?;
++    let texts: Vec<Value> = d
++        .lines
++        .iter()
++        .filter_map(|l| l.fits.first().map(|f| json!({"text": f.text, "font": f.face.family, "fontStyle": f.face.style, "sizePx": f.size_px, "score": f.score})))
++        .collect();
++    let report = json!({"texts": texts, "notes": d.notes, "person": d.person.is_some(), "decorations": d.plates.len(), "seconds": t.elapsed().as_secs_f32()});
++    Ok(Outcome { document, report })
++}
++
++fn status() -> Vec<(String, String)> {
++    let mut v = plotmill_bridge::models::status();
++    let faces = plotmill_bridge::fontmatch::japanese_faces();
++    let names: Vec<String> = faces.iter().map(|f| format!("{} {}", f.family, f.style)).collect();
++    v.push(("日本語フォント / Japanese fonts".into(), format!("{}: {}", faces.len(), names.join(", "))));
++    v
++}
++
++pub fn service() -> Option<Service> {
++    Some(Service { run: Arc::new(run), status: Arc::new(status) })
++}
+diff --git a/apps/photocraft/src/main.rs b/apps/photocraft/src/main.rs
+index 709c2b9..756cbd0 100644
+--- a/apps/photocraft/src/main.rs
++++ b/apps/photocraft/src/main.rs
+@@ -20,6 +20,8 @@
+ #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+ #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+ 
++#[cfg(feature = "ai-thumbnail")]
++mod ai_thumbnail;
+ mod app_dirs;
+ mod app_icon;
+ mod appearance;
+diff --git a/apps/photocraft/src/services.rs b/apps/photocraft/src/services.rs
+index eba7564..4073c19 100644
+--- a/apps/photocraft/src/services.rs
++++ b/apps/photocraft/src/services.rs
+@@ -402,6 +402,8 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
+         os_events: None,
+         // Set by main, which starts loading the store before the window opens.
+         preset_store: None,
++        #[cfg(feature = "ai-thumbnail")]
++        ai_thumbnail: crate::ai_thumbnail::service(),
+         is_wayland: false,
+         ..recovery_services(recovery_dir())
+     }
+diff --git a/crates/ui-egui/src/ai_thumbnail_ui.rs b/crates/ui-egui/src/ai_thumbnail_ui.rs
+new file mode 100644
+index 0000000..a5e7b50
+--- /dev/null
++++ b/crates/ui-egui/src/ai_thumbnail_ui.rs
+@@ -0,0 +1,713 @@
++//! File › Import › AI Thumbnails… and Window › AI Thumbnail: the Plotmill AI Thumbnail Bridge.
++//!
++//! Takes up to four finished thumbnails (for example PNGs saved from ChatGPT), shows them side by
++//! side, and decomposes the chosen ones into editable documents: background, person, decorations
++//! and **editable type layers** with the estimated font, size, spacing, colours, outline and
++//! shadow. Each image is decomposed on its own worker thread and opens as its own document.
++//!
++//! The analysis (OCR, segmentation, font matching) runs natively and locally; it is injected by
++//! the desktop app through [`Service`] (`Services::ai_thumbnail`), so this crate stays free of
++//! machine-learning dependencies and the web build simply shows the feature as unavailable.
++//!
++//! Commands (UI level, also reachable from the control channel / MCP bridge):
++//! * `file.import.aiThumbnails` — pick images, then show the panel; its automation twin
++//!   `aiThumbnail.import {"paths": [...]}` reads only through the automation read root (the
++//!   automation policy refuses `file.*` ids);
++//! * `window.aiThumbnail` — show/hide the panel;
++//! * `aiThumbnail.decompose` — `{"indices": [..]?}` decompose the loaded images (default: the
++//!   selected ones), or `{"active": true}` the active document's composite;
++//! * `aiThumbnail.compare` — toggle between the decomposed document and its hidden original;
++//! * `aiThumbnail.export` — `{"format": "png"|"jpg"}` export the finished thumbnail.
++
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::{Arc, Mutex};
++
++use photocraft_doc::{Document, LayerContent, LayerId};
++use serde_json::{Value, json};
++
++use crate::PhotocraftApp;
++use crate::file_dialog::{FileDialogAnswer, FileDialogRequest};
++
++/// Most images taken at once.
++pub const MAX_IMAGES: usize = 4;
++/// Where the bridge keeps its record in `Document::metadata.text`.
++pub const META_KEY: &str = "plotmill.thumbnail";
++/// Name of the hidden reference layer holding the original image.
++pub const REFERENCE_LAYER: &str = "元画像（参照）";
++
++/// One image to decompose.
++pub struct Request {
++    pub name: String,
++    pub bytes: Vec<u8>,
++    /// `{"person": bool, "decorations": bool, "canvas": "youtube"|"original"}`.
++    pub options: Value,
++}
++
++/// A decomposed thumbnail.
++pub struct Outcome {
++    pub document: Document,
++    /// Summary for the panel (`texts`, `notes`, `seconds`, …).
++    pub report: Value,
++}
++
++/// Progress callback: the stage being run, as a short user-facing label.
++pub type Progress<'a> = &'a (dyn Fn(&str) + Sync);
++pub type RunFn = dyn Fn(Request, Progress<'_>, &AtomicBool) -> Result<Outcome, String> + Send + Sync;
++pub type StatusFn = dyn Fn() -> Vec<(String, String)> + Send + Sync;
++
++/// The native analysis, injected by the app.
++#[derive(Clone)]
++pub struct Service {
++    pub run: Arc<RunFn>,
++    /// Model / runtime / font availability, for the panel's status section.
++    pub status: Arc<StatusFn>,
++}
++
++// The web build has no workers, so nothing finishes there.
++#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
++#[derive(Clone, Debug, PartialEq)]
++enum Phase {
++    Ready,
++    Running(String),
++    Done,
++    Failed(String),
++}
++
++struct Shared {
++    phase: Phase,
++    outcome: Option<Outcome>,
++    report: Value,
++}
++
++struct Card {
++    name: String,
++    bytes: Arc<Vec<u8>>,
++    size: (u32, u32),
++    texture: Option<egui::TextureHandle>,
++    selected: bool,
++    shared: Arc<Mutex<Shared>>,
++    /// The document opened from it.
++    doc: Option<photocraft_doc::DocId>,
++}
++
++pub(crate) struct State {
++    open: bool,
++    cards: Vec<Card>,
++    person: bool,
++    decorations: bool,
++    youtube: bool,
++    cancel: Arc<AtomicBool>,
++    message: String,
++    show_status: bool,
++}
++
++impl Default for State {
++    fn default() -> Self {
++        Self { open: false, cards: Vec::new(), person: true, decorations: true, youtube: true, cancel: Arc::default(), message: String::new(), show_status: false }
++    }
++}
++
++type Handle = Arc<Mutex<State>>;
++
++fn state(ctx: &egui::Context) -> Handle {
++    ctx.data_mut(|d| d.get_temp_mut_or_insert_with(egui::Id::new("plotmill-ai-thumbnail"), || Arc::new(Mutex::new(State::default()))).clone())
++}
++
++fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
++    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
++}
++
++/// Japanese when the UI is Japanese, English otherwise (the panel's own strings).
++fn t(ja: &'static str, en: &'static str) -> &'static str {
++    if crate::i18n::current().code() == "ja" { ja } else { en }
++}
++
++/// Enabled state of the AI thumbnail commands (`None` for other ids).
++pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
++    let svc = app.services.ai_thumbnail.is_some();
++    match id {
++        "file.import.aiThumbnails" | "aiThumbnail.import" | "window.aiThumbnail" => Some(svc),
++        "aiThumbnail.decompose" => Some(svc),
++        "aiThumbnail.compare" => Some(app.session.active().is_some_and(|d| reference_layer(&d.doc).is_some())),
++        "aiThumbnail.export" => Some(app.session.active().is_some() && app.services.export.is_some()),
++        _ => None,
++    }
++}
++
++/// Runs an AI thumbnail command (`None` for other ids).
++pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
++    let r = match id {
++        "file.import.aiThumbnails" | "aiThumbnail.import" => import(app, ctx, params),
++        "window.aiThumbnail" => {
++            let h = state(ctx);
++            let mut s = lock(&h);
++            s.open = params.get("open").and_then(Value::as_bool).unwrap_or(!s.open);
++            Ok(json!({"open": s.open}))
++        }
++        "aiThumbnail.decompose" => decompose(app, ctx, params),
++        "aiThumbnail.compare" => compare(app),
++        "aiThumbnail.export" => export(app, params.get("format").and_then(Value::as_str).unwrap_or("png"), params.get("path").and_then(Value::as_str)),
++        _ => return None,
++    };
++    Some(r)
++}
++
++fn unavailable() -> String {
++    t(
++        "AIサムネイル機能はこのビルドでは使えません（デスクトップ版で scripts/setup.sh を実行してください）",
++        "AI thumbnails are not available in this build (desktop app with the bridge's scripts/setup.sh)",
++    )
++    .into()
++}
++
++fn import(app: &mut PhotocraftApp, ctx: &egui::Context, params: &Value) -> Result<Value, String> {
++    if app.services.ai_thumbnail.is_none() {
++        return Err(unavailable());
++    }
++    if let Some(paths) = params.get("paths").and_then(Value::as_array) {
++        // Automation: only through the scoped read authority, never ambient file access.
++        let mut files = Vec::new();
++        for p in paths.iter().filter_map(Value::as_str).take(MAX_IMAGES) {
++            let read = app.services.automation_read.as_mut().ok_or("no automation read root is configured")?;
++            files.push(read(p)?);
++        }
++        let n = add_files(app, ctx, files);
++        lock(&state(ctx)).open = true;
++        return Ok(json!({"loaded": n}));
++    }
++    let initial_dir = None;
++    let exts = Some(["png", "jpg", "jpeg", "webp"].iter().map(|s| s.to_string()).collect());
++    let ctx2 = ctx.clone();
++    app.ask_file(FileDialogRequest::Open { multiple: true, initial_dir, extensions: exts }, move |app, answer| {
++        let files: Vec<(String, Vec<u8>)> = match answer {
++            FileDialogAnswer::Paths(paths) => {
++                let mut v = Vec::new();
++                for p in paths {
++                    v.push(read_path(&p)?);
++                }
++                v
++            }
++            FileDialogAnswer::Contents(n, b) => vec![(n, b)],
++            FileDialogAnswer::ContentsMany(f) => f,
++            FileDialogAnswer::SaveTo(_) => return Err("unexpected answer".into()),
++        };
++        let n = add_files(app, &ctx2, files);
++        lock(&state(&ctx2)).open = true;
++        Ok(json!({"loaded": n}))
++    })
++}
++
++#[cfg(not(target_arch = "wasm32"))]
++fn read_path(p: &str) -> Result<(String, Vec<u8>), String> {
++    const MAX_BYTES: u64 = 64 << 20;
++    let meta = std::fs::metadata(p).map_err(|e| format!("{p}: {e}"))?;
++    if meta.len() > MAX_BYTES {
++        return Err(format!("{p}: larger than 64 MiB"));
++    }
++    let bytes = std::fs::read(p).map_err(|e| format!("{p}: {e}"))?;
++    let name = std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.to_string());
++    Ok((name, bytes))
++}
++
++#[cfg(target_arch = "wasm32")]
++fn read_path(p: &str) -> Result<(String, Vec<u8>), String> {
++    Err(format!("{p}: paths are not readable on the web"))
++}
++
++/// Add images to the panel (replacing the previous set), with previews. Returns how many.
++fn add_files(app: &mut PhotocraftApp, ctx: &egui::Context, files: Vec<(String, Vec<u8>)>) -> usize {
++    let h = state(ctx);
++    let mut s = lock(&h);
++    s.cancel.store(true, Ordering::Relaxed);
++    s.cancel = Arc::default();
++    s.cards.clear();
++    s.message.clear();
++    if files.len() > MAX_IMAGES {
++        s.message = format!("{} ({MAX_IMAGES})", t("一度に読み込めるのは4枚までです", "At most 4 images at a time"));
++    }
++    for (name, bytes) in files.into_iter().take(MAX_IMAGES) {
++        let (texture, size) = match preview(app, ctx, &name, &bytes) {
++            Ok(v) => v,
++            Err(e) => {
++                s.message = format!("{name}: {e}");
++                continue;
++            }
++        };
++        let only_one = false;
++        s.cards.push(Card {
++            name,
++            bytes: Arc::new(bytes),
++            size,
++            texture: Some(texture),
++            selected: only_one,
++            shared: Arc::new(Mutex::new(Shared { phase: Phase::Ready, outcome: None, report: Value::Null })),
++            doc: None,
++        });
++    }
++    // One image: select it; several: the user picks which to edit.
++    if s.cards.len() == 1
++        && let Some(c) = s.cards.first_mut()
++    {
++        c.selected = true;
++    }
++    s.cards.len()
++}
++
++fn preview(app: &PhotocraftApp, ctx: &egui::Context, name: &str, bytes: &[u8]) -> Result<(egui::TextureHandle, (u32, u32)), String> {
++    let import = app.services.import.as_ref().ok_or("no importer configured")?;
++    let (doc, _) = import(name, bytes, 0)?;
++    let size = (doc.size.width, doc.size.height);
++    let img = photocraft_compose::thumbnail(&doc, 400);
++    let color = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.pixels);
++    Ok((ctx.load_texture(format!("ai-thumb-{name}"), color, egui::TextureOptions::LINEAR), size))
++}
++
++fn decompose(app: &mut PhotocraftApp, ctx: &egui::Context, params: &Value) -> Result<Value, String> {
++    let svc = app.services.ai_thumbnail.clone().ok_or_else(unavailable)?;
++    let h = state(ctx);
++    let mut s = lock(&h);
++    let options = json!({"person": s.person, "decorations": s.decorations, "canvas": if s.youtube { "youtube" } else { "original" }});
++    if params.get("active").and_then(Value::as_bool) == Some(true) {
++        // The active document's composite becomes a new card.
++        let st = app.session.active().ok_or("no document open")?;
++        let img = photocraft_compose::thumbnail(&st.doc, st.doc.size.width.max(st.doc.size.height));
++        let png = app.services.encode_png.as_ref().ok_or("no PNG encoder configured")?(img.width, img.height, &img.pixels)?;
++        let name = format!("{}.png", st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(a, _)| a));
++        drop(s);
++        add_files(app, ctx, vec![(name, png)]);
++        s = lock(&h);
++        s.open = true;
++    }
++    let wanted: Vec<usize> = match params.get("indices").and_then(Value::as_array) {
++        Some(v) => v.iter().filter_map(Value::as_u64).map(|i| i as usize).filter(|i| *i < s.cards.len()).collect(),
++        None => s.cards.iter().enumerate().filter(|(_, c)| c.selected).map(|(i, _)| i).collect(),
++    };
++    if wanted.is_empty() {
++        return Err(t("分解する画像を選んでください", "Select the images to decompose").into());
++    }
++    let cancel = s.cancel.clone();
++    let mut started = Vec::new();
++    for i in wanted {
++        let Some(card) = s.cards.get_mut(i) else { continue };
++        if matches!(lock(&card.shared).phase, Phase::Running(_)) {
++            continue;
++        }
++        card.selected = true;
++        card.doc = None;
++        let shared = card.shared.clone();
++        {
++            let mut sh = lock(&shared);
++            sh.phase = Phase::Running(t("開始中", "Starting").into());
++            sh.outcome = None;
++        }
++        let req = Request { name: card.name.clone(), bytes: (*card.bytes).clone(), options: options.clone() };
++        spawn(svc.clone(), req, shared, cancel.clone(), ctx.clone())?;
++        started.push(i);
++    }
++    Ok(json!({"started": started}))
++}
++
++#[cfg(not(target_arch = "wasm32"))]
++fn spawn(svc: Service, req: Request, shared: Arc<Mutex<Shared>>, cancel: Arc<AtomicBool>, ctx: egui::Context) -> Result<(), String> {
++    std::thread::Builder::new()
++        .name("ai-thumbnail".into())
++        .spawn(move || {
++            let progress = |stage: &str| {
++                lock(&shared).phase = Phase::Running(stage.to_string());
++                ctx.request_repaint();
++            };
++            // A panic in the analysis must not take the app down: report it as a failure.
++            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (svc.run)(req, &progress, &cancel)))
++                .unwrap_or_else(|_| Err("internal error in the thumbnail analysis".into()));
++            let mut sh = lock(&shared);
++            match r {
++                Ok(o) => {
++                    sh.report = o.report.clone();
++                    sh.outcome = Some(o);
++                    sh.phase = Phase::Done;
++                }
++                Err(e) => sh.phase = Phase::Failed(e),
++            }
++            drop(sh);
++            ctx.request_repaint();
++        })
++        .map(|_| ())
++        .map_err(|e| e.to_string())
++}
++
++#[cfg(target_arch = "wasm32")]
++fn spawn(_: Service, _: Request, _: Arc<Mutex<Shared>>, _: Arc<AtomicBool>, _: egui::Context) -> Result<(), String> {
++    Err(unavailable())
++}
++
++/// The hidden original kept by the bridge.
++pub fn reference_layer(doc: &Document) -> Option<LayerId> {
++    let from_record = doc
++        .metadata
++        .text
++        .iter()
++        .rev()
++        .find(|(k, _)| k == META_KEY)
++        .and_then(|(_, v)| serde_json::from_str::<Value>(v).ok())
++        .and_then(|v| v["reference_layer"].as_u64())
++        .map(LayerId)
++        .filter(|id| doc.layer(*id).is_some());
++    from_record.or_else(|| doc.walk().iter().find(|(_, _, l)| l.name == REFERENCE_LAYER).map(|(_, _, l)| l.id))
++}
++
++/// Show only the original (Photoshop's ⌥-click on its eye); again: back to the edit.
++fn compare(app: &mut PhotocraftApp) -> Result<Value, String> {
++    let id = app.session.active().and_then(|d| reference_layer(&d.doc)).ok_or(t("元画像レイヤーがありません", "No original-image layer in this document"))?;
++    app.run("layer.showOnly", json!({"layer": id.0}))
++}
++
++fn export(app: &mut PhotocraftApp, format: &str, path: Option<&str>) -> Result<Value, String> {
++    let ext = match format {
++        "png" => "png",
++        "jpg" | "jpeg" => "jpg",
++        f => return Err(format!("unsupported export format `{f}` (png or jpg)")),
++    };
++    let st = app.session.active().ok_or("no document open")?;
++    let stem = st.doc.name.rsplit_once('.').map_or(st.doc.name.clone(), |(a, _)| a.to_string());
++    let doc_id = st.doc.id;
++    let write = move |app: &mut PhotocraftApp, path: String| -> Result<Value, String> {
++        let st = app.session.documents().iter().find(|d| d.doc.id == doc_id).ok_or("the document was closed")?;
++        let doc = st.doc.clone();
++        let export = app.services.export.as_ref().ok_or("no exporter configured")?;
++        let (bytes, warnings) = export(&doc, ext, &crate::ExportSettings::default())?;
++        let write = app.services.write.as_mut().ok_or("no file writer configured")?;
++        write(&path, &bytes)?;
++        app.ui.status = format!("{} {path}", t("書き出しました:", "Exported"));
++        Ok(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}))
++    };
++    match path {
++        // A path comes only from automation, and is written only through the scoped automation
++        // write authority (never ambient file access).
++        Some(p) => {
++            let st = app.session.active().ok_or("no document open")?;
++            let doc = st.doc.clone();
++            let export = app.services.export.as_ref().ok_or("no exporter configured")?;
++            let (bytes, _) = export(&doc, ext, &crate::ExportSettings::default())?;
++            let w = app.services.automation_write.as_mut().ok_or("no automation write root is configured")?;
++            w(p, &bytes)?;
++            Ok(json!({"path": p, "bytes": bytes.len()}))
++        }
++        None => app.pick_save(&format!("{stem}.{ext}"), write),
++    }
++}
++
++/// What a click in the panel asks for, run after drawing.
++enum Act {
++    Import,
++    Decompose,
++    DecomposeActive,
++    Cancel,
++    Compare,
++    Export(&'static str),
++    SaveAs,
++    Focus(photocraft_doc::DocId),
++    SetFont { layer: u64, family: String, style: String, size: f32, tracking: f32 },
++    EditText(u64),
++}
++
++/// Draw the panel and pick up finished decompositions.
++pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
++    let h = state(ctx);
++    // Finished work opens as documents (on the UI thread, which owns the session).
++    let mut opened = Vec::new();
++    {
++        let mut s = lock(&h);
++        for card in &mut s.cards {
++            let outcome = lock(&card.shared).outcome.take();
++            if let Some(o) = outcome {
++                let id = app.session.add_document(o.document, None);
++                card.doc = app.session.documents().get(id).map(|d| d.doc.id);
++                opened.push(card.name.clone());
++            }
++        }
++    }
++    if !opened.is_empty() {
++        app.sync_views();
++        app.ui.status = format!("{} {}", t("AIサムネイルを分解しました:", "Decomposed AI thumbnail:"), opened.join(", "));
++        app.ui.status_error = false;
++    }
++    let mut open = lock(&h).open;
++    if !open {
++        return;
++    }
++    let mut acts: Vec<Act> = Vec::new();
++    let active_record = app.session.active().map(|d| (d.doc.clone(), record(&d.doc)));
++    let status = app.services.ai_thumbnail.as_ref().map(|s| s.status.clone());
++    egui::Window::new(t("AIサムネイル", "AI Thumbnail"))
++        .id(egui::Id::new("plotmill-ai-thumbnail-window"))
++        .open(&mut open)
++        .default_width(560.0)
++        .resizable(true)
++        .show(ctx, |ui| {
++            let mut s = lock(&h);
++            ui.label(t(
++                "ChatGPT などで作ったサムネイル画像（最大4枚）を読み込み、背景・人物・装飾・編集できる文字レイヤーに分解します。処理はすべてこのPC内で行われ、画像は外部に送信されません。",
++                "Load up to 4 finished thumbnails (e.g. saved from ChatGPT) and split them into background, person, decorations and editable text layers. Everything runs on this computer; no image is uploaded.",
++            ));
++            ui.add_space(4.0);
++            ui.horizontal_wrapped(|ui| {
++                if ui.button(t("① AIサムネイルを読み込む…", "① Import AI thumbnails…")).clicked() {
++                    acts.push(Act::Import);
++                }
++                let any_sel = s.cards.iter().any(|c| c.selected);
++                if ui.add_enabled(any_sel, egui::Button::new(t("② レイヤーを自動分解", "② Decompose into layers"))).clicked() {
++                    acts.push(Act::Decompose);
++                }
++                if ui
++                    .add_enabled(app.session.active().is_some(), egui::Button::new(t("開いている画像を分解", "Decompose the open image")))
++                    .on_hover_text(t("アクティブなドキュメントの見た目を1枚の画像として分解します", "Decomposes the active document's composite"))
++                    .clicked()
++                {
++                    acts.push(Act::DecomposeActive);
++                }
++                let running = s.cards.iter().any(|c| matches!(lock(&c.shared).phase, Phase::Running(_)));
++                if running && ui.button(t("中止", "Cancel")).clicked() {
++                    acts.push(Act::Cancel);
++                }
++            });
++            ui.horizontal_wrapped(|ui| {
++                ui.checkbox(&mut s.person, t("人物を切り抜く", "Cut out people"));
++                ui.checkbox(&mut s.decorations, t("帯・吹き出しを分離", "Separate banners & bubbles"));
++                ui.checkbox(&mut s.youtube, t("YouTube 1280×720 に合わせる", "Fit to YouTube 1280×720"));
++            });
++            if !s.message.is_empty() {
++                ui.colored_label(egui::Color32::from_rgb(230, 120, 40), s.message.clone());
++            }
++            if s.cards.len() > 1 {
++                ui.label(t("編集したいサムネイルをクリックして選択してください（複数可）。", "Click the thumbnails you want to edit (several allowed)."));
++            }
++            // Preview grid: two per row.
++            let width = ui.available_width().max(200.0);
++            let cell = ((width - 12.0) / 2.0).clamp(120.0, 360.0);
++            egui::Grid::new("ai-thumb-grid").spacing([8.0, 8.0]).show(ui, |ui| {
++                let n = s.cards.len();
++                for i in 0..n {
++                    let Some(card) = s.cards.get_mut(i) else { continue };
++                    ui.vertical(|ui| {
++                        ui.set_width(cell);
++                        if let Some(tex) = &card.texture {
++                            let sz = tex.size_vec2();
++                            let scale = cell / sz.x.max(1.0);
++                            let resp = ui.add(egui::Image::new((tex.id(), sz * scale)).sense(egui::Sense::click()));
++                            if card.selected {
++                                ui.painter().rect_stroke(resp.rect.expand(2.0), 3.0, egui::Stroke::new(3.0, egui::Color32::from_rgb(40, 140, 255)), egui::StrokeKind::Outside);
++                            }
++                            if resp.clicked() {
++                                card.selected = !card.selected;
++                            }
++                        }
++                        ui.horizontal(|ui| {
++                            ui.checkbox(&mut card.selected, "");
++                            ui.label(egui::RichText::new(format!("{}  {}×{}", card.name, card.size.0, card.size.1)).small());
++                        });
++                        let sh = lock(&card.shared);
++                        match &sh.phase {
++                            Phase::Ready => {
++                                ui.label(egui::RichText::new(t("未処理", "Not decomposed yet")).small());
++                            }
++                            Phase::Running(stage) => {
++                                ui.horizontal(|ui| {
++                                    ui.spinner();
++                                    ui.label(egui::RichText::new(stage.clone()).small());
++                                });
++                            }
++                            Phase::Done => {
++                                let texts = sh.report["texts"].as_array().map_or(0, Vec::len);
++                                let secs = sh.report["seconds"].as_f64().unwrap_or(0.0);
++                                ui.label(egui::RichText::new(format!("{} {texts} / {secs:.1}s", t("完了 — 文字レイヤー", "Done — text layers"))).small().color(egui::Color32::from_rgb(60, 170, 90)));
++                                if let Some(d) = card.doc
++                                    && ui.small_button(t("このドキュメントを表示", "Show document")).clicked()
++                                {
++                                    acts.push(Act::Focus(d));
++                                }
++                            }
++                            Phase::Failed(e) => {
++                                ui.label(egui::RichText::new(format!("{} {e}", t("失敗:", "Failed:"))).small().color(egui::Color32::from_rgb(220, 70, 60)));
++                            }
++                        }
++                    });
++                    if i % 2 == 1 {
++                        ui.end_row();
++                    }
++                }
++            });
++            ui.separator();
++            // The active document: compare, fonts, export.
++            match &active_record {
++                Some((doc, Some(rec))) => {
++                    ui.strong(format!("{} — {}", t("編集中", "Editing"), doc.name));
++                    ui.horizontal_wrapped(|ui| {
++                        if ui.button(t("③ 元画像と比較（切替）", "③ Compare with original (toggle)")).clicked() {
++                            acts.push(Act::Compare);
++                        }
++                        if ui.button(t("④ PNGで書き出す…", "④ Export PNG…")).clicked() {
++                            acts.push(Act::Export("png"));
++                        }
++                        if ui.button(t("JPEGで書き出す…", "Export JPEG…")).clicked() {
++                            acts.push(Act::Export("jpg"));
++                        }
++                        if ui.button(t("プロジェクトを保存（.pcraft / .psd）…", "Save project (.pcraft / .psd)…")).clicked() {
++                            acts.push(Act::SaveAs);
++                        }
++                    });
++                    ui.label(egui::RichText::new(t(
++                        "文字は通常の文字レイヤーです。キャンバス上の文字をダブルクリック（または「編集」）して書き換えられます。フォントは候補から選び直せます。",
++                        "Texts are ordinary type layers: double-click them on the canvas (or press Edit) to rewrite. Pick another font from the candidates below.",
++                    )).small());
++                    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
++                        egui::Grid::new("ai-thumb-texts").striped(true).spacing([8.0, 4.0]).show(ui, |ui| {
++                            for tr in rec["texts"].as_array().into_iter().flatten() {
++                                let Some(layer) = tr["layer"].as_u64() else { continue };
++                                let Some(l) = doc.layer(LayerId(layer)) else { continue };
++                                let LayerContent::Text(tl) = &l.content else { continue };
++                                let style = tl.char_runs().first().map(|r| r.style.clone()).unwrap_or_default();
++                                ui.label(egui::RichText::new(&tl.text).strong());
++                                let current = format!("{} {}", style.font_family, style.font_style);
++                                egui::ComboBox::from_id_salt(("ai-font", layer)).selected_text(current).width(220.0).show_ui(ui, |ui| {
++                                    for c in tr["candidates"].as_array().into_iter().flatten() {
++                                        let family = c["family"].as_str().unwrap_or_default().to_string();
++                                        let st = c["style"].as_str().unwrap_or_default().to_string();
++                                        let score = c["score"].as_f64().unwrap_or(0.0);
++                                        let label = format!("{family} {st}  ({:.0}%)", score * 100.0);
++                                        let on = family == style.font_family && st == style.font_style;
++                                        if ui.selectable_label(on, label).clicked() {
++                                            acts.push(Act::SetFont {
++                                                layer,
++                                                family,
++                                                style: st,
++                                                size: c["size_pt"].as_f64().unwrap_or(style.size_pt as f64) as f32,
++                                                tracking: c["tracking"].as_f64().unwrap_or(0.0) as f32,
++                                            });
++                                        }
++                                    }
++                                });
++                                if ui.small_button(t("編集", "Edit")).clicked() {
++                                    acts.push(Act::EditText(layer));
++                                }
++                                ui.end_row();
++                            }
++                        });
++                    });
++                    for n in rec["notes"].as_array().into_iter().flatten().filter_map(Value::as_str) {
++                        ui.label(egui::RichText::new(format!("※ {n}")).small());
++                    }
++                }
++                _ => {
++                    ui.label(egui::RichText::new(t(
++                        "分解したドキュメントを選ぶと、ここで元画像との比較・フォント候補の切替・書き出しができます。",
++                        "Select a decomposed document to compare it with the original, switch fonts and export.",
++                    )).small());
++                }
++            }
++            ui.add_space(4.0);
++            ui.collapsing(t("AIモデルの状態", "AI model status"), |ui| {
++                s.show_status = true;
++                match &status {
++                    Some(f) => {
++                        for (k, v) in f() {
++                            ui.label(egui::RichText::new(format!("{k}: {v}")).small());
++                        }
++                    }
++                    None => {
++                        ui.label(unavailable());
++                    }
++                }
++            });
++        });
++    lock(&h).open = open;
++    for a in acts {
++        let r = match a {
++            Act::Import => import(app, ctx, &Value::Null),
++            Act::Decompose => decompose(app, ctx, &Value::Null),
++            Act::DecomposeActive => decompose(app, ctx, &json!({"active": true})),
++            Act::Cancel => {
++                let s = lock(&h);
++                s.cancel.store(true, Ordering::Relaxed);
++                Ok(Value::Null)
++            }
++            Act::Compare => compare(app),
++            Act::Export(f) => export(app, f, None),
++            Act::SaveAs => crate::menus::invoke(app, ctx, "file.saveAs", json!({})),
++            Act::Focus(d) => {
++                if let Some(i) = app.session.documents().iter().position(|x| x.doc.id == d) {
++                    app.session.set_active(i);
++                    app.sync_views();
++                }
++                Ok(Value::Null)
++            }
++            Act::SetFont { layer, family, style, size, tracking } => {
++                app.run("type.setStyle", json!({"layer": layer, "font": family, "fontStyle": style, "size": size, "tracking": tracking.round()}))
++            }
++            Act::EditText(layer) => app.run("layer.select", json!({"layer": layer})).and_then(|_| crate::menus::invoke(app, ctx, "type.editText", json!({}))),
++        };
++        if let Err(e) = r
++            && e != crate::file_dialog::CANCELLED
++        {
++            app.ui.status = e;
++            app.ui.status_error = true;
++        }
++    }
++}
++
++/// The bridge's record in a document, as JSON.
++fn record(doc: &Document) -> Option<Value> {
++    doc.metadata.text.iter().rev().find(|(k, _)| k == META_KEY).and_then(|(_, v)| serde_json::from_str(v).ok())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use photocraft_doc::{Layer, Size};
++
++    fn doc_with_reference() -> Document {
++        let mut d = Document::new("t", Size::new(8, 8), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
++        let mut r = Layer::raster(REFERENCE_LAYER, d.pixel_format());
++        r.visible = false;
++        let id = r.id;
++        d.layers.push(r);
++        d.layers.push(Layer::raster("背景", d.pixel_format()));
++        d.metadata.text.push((META_KEY.into(), json!({"reference_layer": id.0, "texts": []}).to_string()));
++        d
++    }
++
++    #[test]
++    fn finds_the_reference_layer_by_record_or_name() {
++        let d = doc_with_reference();
++        assert!(reference_layer(&d).is_some());
++        let mut plain = d.clone();
++        plain.metadata.text.clear();
++        assert_eq!(reference_layer(&plain), reference_layer(&d));
++        let mut none = Document::new("n", Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
++        none.layers.push(Layer::raster("x", none.pixel_format()));
++        assert!(reference_layer(&none).is_none());
++    }
++
++    #[test]
++    fn commands_without_the_service_fail_gracefully() {
++        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
++        let ctx = egui::Context::default();
++        assert_eq!(is_enabled(&app, "file.import.aiThumbnails"), Some(false));
++        assert!(menu(&mut app, &ctx, "file.import.aiThumbnails", &json!({})).is_some_and(|r| r.is_err()));
++        assert!(menu(&mut app, &ctx, "aiThumbnail.decompose", &json!({})).is_some_and(|r| r.is_err()));
++        assert!(menu(&mut app, &ctx, "aiThumbnail.compare", &json!({})).is_some_and(|r| r.is_err()));
++        assert!(menu(&mut app, &ctx, "aiThumbnail.export", &json!({"format": "gif"})).is_some_and(|r| r.is_err()));
++        assert!(menu(&mut app, &ctx, "not.ours", &json!({})).is_none());
++    }
++
++    #[test]
++    fn compare_toggles_show_only_the_original() {
++        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
++        app.session.add_document(doc_with_reference(), None);
++        assert_eq!(is_enabled(&app, "aiThumbnail.compare"), Some(true));
++        compare(&mut app).unwrap();
++        let vis = |app: &PhotocraftApp| app.session.active().unwrap().doc.layers.iter().map(|l| l.visible).collect::<Vec<_>>();
++        assert_eq!(vis(&app), vec![true, false]);
++        compare(&mut app).unwrap();
++        assert_eq!(vis(&app), vec![false, true]);
++    }
++}
+diff --git a/crates/ui-egui/src/canvas.rs b/crates/ui-egui/src/canvas.rs
+index 06d52ff..b10b0e7 100644
+--- a/crates/ui-egui/src/canvas.rs
++++ b/crates/ui-egui/src/canvas.rs
+@@ -3075,6 +3075,15 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
+         if tool.is_type() && response.double_clicked() && !crate::type_transform::visible(app, crate::workspace_ui::sticky_mods(app, mods)) {
+             crate::type_tool::select_word(app);
+         }
++        // Move tool: a double-click on type edits it, caret at the click (Photoshop). Transform
++        // controls the first click showed were committed just above.
++        if tool == Tool::Move
++            && response.double_clicked()
++            && let Some(p) = response.interact_pointer_pos()
++        {
++            let d = xf.to_doc(p);
++            crate::type_tool::edit_at(app, d[0], d[1]);
++        }
+         if app.ui.extras.grid && app.ui.view.extras {
+             crate::rulers::draw_grid(app, &painter, &xf, &doc);
+         }
+diff --git a/crates/ui-egui/src/i18n/cs.tsv b/crates/ui-egui/src/i18n/cs.tsv
+index 33f32c2..4fe6ebc 100644
+--- a/crates/ui-egui/src/i18n/cs.tsv
++++ b/crates/ui-egui/src/i18n/cs.tsv
+@@ -2469,3 +2469,10 @@ cameraData	Lens	Objektiv
+ 	Front Image	Přední obraz
+ 	Search settings…	Hledat nastavení…
+ 	No matching settings	Žádná odpovídající nastavení
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Miniatury AI…
++	AI Thumbnail	Miniatura AI
++	Decompose AI Thumbnail	Rozložit miniaturu AI
++	Compare with Original	Porovnat s originálem
++	Export Thumbnail…	Exportovat miniaturu…
+diff --git a/crates/ui-egui/src/i18n/de.tsv b/crates/ui-egui/src/i18n/de.tsv
+index 27e71fe..8b103cc 100644
+--- a/crates/ui-egui/src/i18n/de.tsv
++++ b/crates/ui-egui/src/i18n/de.tsv
+@@ -2507,3 +2507,10 @@ cameraData	Lens	Objektiv
+ 	Front Image	Vorderes Bild
+ 	Search settings…	Einstellungen durchsuchen…
+ 	No matching settings	Keine passenden Einstellungen
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	KI-Thumbnails…
++	AI Thumbnail	KI-Thumbnail
++	Decompose AI Thumbnail	KI-Thumbnail zerlegen
++	Compare with Original	Mit Original vergleichen
++	Export Thumbnail…	Thumbnail exportieren…
+diff --git a/crates/ui-egui/src/i18n/el.tsv b/crates/ui-egui/src/i18n/el.tsv
+index 4821be0..7bb8ab9 100644
+--- a/crates/ui-egui/src/i18n/el.tsv
++++ b/crates/ui-egui/src/i18n/el.tsv
+@@ -3575,3 +3575,10 @@ cameraData	Lens	Φακός
+ 	Front Image	Μπροστινή εικόνα
+ 	Search settings…	Αναζήτηση ρυθμίσεων…
+ 	No matching settings	Δεν βρέθηκαν ρυθμίσεις
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Μικρογραφίες AI…
++	AI Thumbnail	Μικρογραφία AI
++	Decompose AI Thumbnail	Ανάλυση μικρογραφίας AI
++	Compare with Original	Σύγκριση με το πρωτότυπο
++	Export Thumbnail…	Εξαγωγή μικρογραφίας…
+diff --git a/crates/ui-egui/src/i18n/es.tsv b/crates/ui-egui/src/i18n/es.tsv
+index bbaac74..bea642d 100644
+--- a/crates/ui-egui/src/i18n/es.tsv
++++ b/crates/ui-egui/src/i18n/es.tsv
+@@ -2548,3 +2548,10 @@ cameraData	Lens	Objetivo
+ 	Front Image	Imagen frontal
+ 	Search settings…	Buscar ajustes…
+ 	No matching settings	No hay ajustes que coincidan
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Miniaturas IA…
++	AI Thumbnail	Miniatura IA
++	Decompose AI Thumbnail	Descomponer miniatura IA
++	Compare with Original	Comparar con el original
++	Export Thumbnail…	Exportar miniatura…
+diff --git a/crates/ui-egui/src/i18n/fr.tsv b/crates/ui-egui/src/i18n/fr.tsv
+index 68a9dff..694f857 100644
+--- a/crates/ui-egui/src/i18n/fr.tsv
++++ b/crates/ui-egui/src/i18n/fr.tsv
+@@ -2885,3 +2885,10 @@ cameraData	Lens	Objectif
+ 	Front Image	Image de premier plan
+ 	Search settings…	Rechercher des réglages…
+ 	No matching settings	Aucun réglage correspondant
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Miniatures IA…
++	AI Thumbnail	Miniature IA
++	Decompose AI Thumbnail	Décomposer la miniature IA
++	Compare with Original	Comparer avec l’original
++	Export Thumbnail…	Exporter la miniature…
+diff --git a/crates/ui-egui/src/i18n/id.tsv b/crates/ui-egui/src/i18n/id.tsv
+index 9355f23..aabbcb2 100644
+--- a/crates/ui-egui/src/i18n/id.tsv
++++ b/crates/ui-egui/src/i18n/id.tsv
+@@ -2872,3 +2872,10 @@ cameraData	Lens	Lensa
+ 	Front Image	Gambar Depan
+ 	Search settings…	Cari pengaturan…
+ 	No matching settings	Tidak ada pengaturan yang cocok
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Thumbnail AI…
++	AI Thumbnail	Thumbnail AI
++	Decompose AI Thumbnail	Uraikan Thumbnail AI
++	Compare with Original	Bandingkan dengan Asli
++	Export Thumbnail…	Ekspor Thumbnail…
+diff --git a/crates/ui-egui/src/i18n/it.tsv b/crates/ui-egui/src/i18n/it.tsv
+index 43e5229..ffceee9 100644
+--- a/crates/ui-egui/src/i18n/it.tsv
++++ b/crates/ui-egui/src/i18n/it.tsv
+@@ -2538,3 +2538,10 @@ cameraData	Lens	Obiettivo
+ 	Front Image	Immagine in primo piano
+ 	Search settings…	Cerca impostazioni…
+ 	No matching settings	Nessuna impostazione corrispondente
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Miniature IA…
++	AI Thumbnail	Miniatura IA
++	Decompose AI Thumbnail	Scomponi miniatura IA
++	Compare with Original	Confronta con l’originale
++	Export Thumbnail…	Esporta miniatura…
+diff --git a/crates/ui-egui/src/i18n/ja.tsv b/crates/ui-egui/src/i18n/ja.tsv
+index 1c66b52..cea8d0d 100644
+--- a/crates/ui-egui/src/i18n/ja.tsv
++++ b/crates/ui-egui/src/i18n/ja.tsv
+@@ -3486,3 +3486,10 @@ cameraData	Lens	レンズ
+ 	Front Image	前面の画像
+ 	Search settings…	設定を検索…
+ 	No matching settings	一致する設定はありません
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	AIサムネイル…
++	AI Thumbnail	AIサムネイル
++	Decompose AI Thumbnail	AIサムネイルを分解
++	Compare with Original	元画像と比較
++	Export Thumbnail…	サムネイルを書き出し…
+diff --git a/crates/ui-egui/src/i18n/ko.tsv b/crates/ui-egui/src/i18n/ko.tsv
+index 8484888..4666029 100644
+--- a/crates/ui-egui/src/i18n/ko.tsv
++++ b/crates/ui-egui/src/i18n/ko.tsv
+@@ -3047,3 +3047,10 @@ cameraData	Lens	렌즈
+ 	Front Image	전면 이미지
+ 	Search settings…	설정 검색…
+ 	No matching settings	일치하는 설정 없음
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	AI 썸네일…
++	AI Thumbnail	AI 썸네일
++	Decompose AI Thumbnail	AI 썸네일 분해
++	Compare with Original	원본과 비교
++	Export Thumbnail…	썸네일 내보내기…
+diff --git a/crates/ui-egui/src/i18n/nl.tsv b/crates/ui-egui/src/i18n/nl.tsv
+index 173af2b..f5e29ff 100644
+--- a/crates/ui-egui/src/i18n/nl.tsv
++++ b/crates/ui-egui/src/i18n/nl.tsv
+@@ -3645,3 +3645,10 @@ cameraData	Lens	Lens
+ 	Search settings…	Instellingen zoeken…
+ 	No matching settings	Geen overeenkomende instellingen
+ 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	AI-miniaturen…
++	AI Thumbnail	AI-miniatuur
++	Decompose AI Thumbnail	AI-miniatuur ontleden
++	Compare with Original	Vergelijken met origineel
++	Export Thumbnail…	Miniatuur exporteren…
+diff --git a/crates/ui-egui/src/i18n/pl.tsv b/crates/ui-egui/src/i18n/pl.tsv
+index 71b80b3..9e836ec 100644
+--- a/crates/ui-egui/src/i18n/pl.tsv
++++ b/crates/ui-egui/src/i18n/pl.tsv
+@@ -3486,3 +3486,10 @@ cameraData	Lens	Obiektyw
+ 	Front Image	Obraz na wierzchu
+ 	Search settings…	Szukaj ustawień…
+ 	No matching settings	Brak pasujących ustawień
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Miniatury AI…
++	AI Thumbnail	Miniatura AI
++	Decompose AI Thumbnail	Rozłóż miniaturę AI
++	Compare with Original	Porównaj z oryginałem
++	Export Thumbnail…	Eksportuj miniaturę…
+diff --git a/crates/ui-egui/src/i18n/pt-br.tsv b/crates/ui-egui/src/i18n/pt-br.tsv
+index ae367d5..762996a 100644
+--- a/crates/ui-egui/src/i18n/pt-br.tsv
++++ b/crates/ui-egui/src/i18n/pt-br.tsv
+@@ -2893,3 +2893,10 @@ cameraData	Lens	Lente
+ 	Front Image	Imagem frontal
+ 	Search settings…	Pesquisar configurações…
+ 	No matching settings	Nenhuma configuração encontrada
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Miniaturas de IA…
++	AI Thumbnail	Miniatura de IA
++	Decompose AI Thumbnail	Decompor miniatura de IA
++	Compare with Original	Comparar com o original
++	Export Thumbnail…	Exportar miniatura…
+diff --git a/crates/ui-egui/src/i18n/ru.tsv b/crates/ui-egui/src/i18n/ru.tsv
+index 27c8e43..096e9c1 100644
+--- a/crates/ui-egui/src/i18n/ru.tsv
++++ b/crates/ui-egui/src/i18n/ru.tsv
+@@ -2752,3 +2752,10 @@ cameraData	Lens	Объектив
+ 	Rasterize Layer Style	Растрировать стиль слоя
+ 	Search settings…	Поиск настроек…
+ 	No matching settings	Нет подходящих настроек
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Миниатюры ИИ…
++	AI Thumbnail	Миниатюра ИИ
++	Decompose AI Thumbnail	Разобрать миниатюру ИИ
++	Compare with Original	Сравнить с оригиналом
++	Export Thumbnail…	Экспорт миниатюры…
+diff --git a/crates/ui-egui/src/i18n/uk.tsv b/crates/ui-egui/src/i18n/uk.tsv
+index 315a2b5..3a38a48 100644
+--- a/crates/ui-egui/src/i18n/uk.tsv
++++ b/crates/ui-egui/src/i18n/uk.tsv
+@@ -3573,3 +3573,10 @@ cameraData	Lens	Об'єктив
+ 	Search settings…	Пошук налаштувань…
+ 	No matching settings	Немає відповідних налаштувань
+ 	PhotoCraft — Screen Color Picker	PhotoCraft — Піпетка кольору екрана
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	Мініатюри ШІ…
++	AI Thumbnail	Мініатюра ШІ
++	Decompose AI Thumbnail	Розібрати мініатюру ШІ
++	Compare with Original	Порівняти з оригіналом
++	Export Thumbnail…	Експорт мініатюри…
+diff --git a/crates/ui-egui/src/i18n/zh-hans.tsv b/crates/ui-egui/src/i18n/zh-hans.tsv
+index 977736f..8b73a9c 100644
+--- a/crates/ui-egui/src/i18n/zh-hans.tsv
++++ b/crates/ui-egui/src/i18n/zh-hans.tsv
+@@ -2476,3 +2476,10 @@ cameraData	Lens	镜头
+ 	Front Image	前面的图像
+ 	Search settings…	搜索设置…
+ 	No matching settings	没有匹配的设置
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	AI 缩略图…
++	AI Thumbnail	AI 缩略图
++	Decompose AI Thumbnail	分解 AI 缩略图
++	Compare with Original	与原图比较
++	Export Thumbnail…	导出缩略图…
+diff --git a/crates/ui-egui/src/i18n/zh-hant.tsv b/crates/ui-egui/src/i18n/zh-hant.tsv
+index 049194e..c0f7ef6 100644
+--- a/crates/ui-egui/src/i18n/zh-hant.tsv
++++ b/crates/ui-egui/src/i18n/zh-hant.tsv
+@@ -2446,3 +2446,10 @@ cameraData	Lens	鏡頭
+ 	Front Image	前面的影像
+ 	Search settings…	搜尋設定…
+ 	No matching settings	沒有符合的設定
++
++# Plotmill AI Thumbnail Bridge (ai_thumbnail_ui)
++	AI Thumbnails…	AI 縮圖…
++	AI Thumbnail	AI 縮圖
++	Decompose AI Thumbnail	分解 AI 縮圖
++	Compare with Original	與原圖比較
++	Export Thumbnail…	轉存縮圖…
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index 06c810e..bbe9300 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -120,6 +120,7 @@ pub mod patch_preview;
+ pub mod perspective_ui;
+ pub mod pixel_grid;
+ pub mod plugin_ui;
++pub mod ai_thumbnail_ui;
+ pub mod point_curve;
+ pub mod prefs_ui;
+ pub mod preset_files_ui;
+@@ -381,6 +382,9 @@ pub struct Services {
+     /// The pointer position read from the OS (desktop): winit 0.30's file drops carry none, and
+     /// the window gets no pointer events during an OS drag (see `file_open::DropTarget`).
+     pub cursor_pos: Option<CursorPosFn>,
++    /// File › Import › AI Thumbnails: the native thumbnail decomposition (Plotmill AI Thumbnail
++    /// Bridge), injected by the desktop app. `None`: the feature is shown as unavailable.
++    pub ai_thumbnail: Option<ai_thumbnail_ui::Service>,
+     /// Caps Lock toggled on (desktop; `None` on Wayland and the web). Read once per frame, so
+     /// the canvas can show the precise crosshair for painting tools, whatever the preference.
+     pub caps_lock: Option<CapsLockFn>,
+@@ -1544,6 +1548,7 @@ impl eframe::App for PhotocraftApp {
+         camera_raw_ui::show(self, &ctx);
+         wide_angle_ui::show(self, &ctx);
+         canvas::extra_windows(self, &ctx);
++        ai_thumbnail_ui::show(self, &ctx);
+         notices::show(self, &ctx);
+         gpu_status::show_fallback(self, &ctx);
+         kys_import::show_offer(self, &ctx);
+diff --git a/crates/ui-egui/src/menus.rs b/crates/ui-egui/src/menus.rs
+index a717a12..ab1b715 100644
+--- a/crates/ui-egui/src/menus.rs
++++ b/crates/ui-egui/src/menus.rs
+@@ -36,6 +36,14 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
+     ("edit.freeTransform", "Free Transform", &["Edit"], Some("Cmd+T")),
+     ("file.export.exportAs", "Export As…", &["File", "Export"], Some("Cmd+Alt+Shift+W")),
+     ("file.export.quickExportAsPng", "Quick Export as PNG", &["File", "Export"], None),
++    // Plotmill AI Thumbnail Bridge (`ai_thumbnail_ui`).
++    ("file.import.aiThumbnails", "AI Thumbnails…", &["File", "Import"], None),
++    ("window.aiThumbnail", "AI Thumbnail", &["Window"], None),
++    // Automation twin of the menu item: reads only through the automation read root.
++    ("aiThumbnail.import", "AI Thumbnails…", &[], None),
++    ("aiThumbnail.decompose", "Decompose AI Thumbnail", &[], None),
++    ("aiThumbnail.compare", "Compare with Original", &[], None),
++    ("aiThumbnail.export", "Export Thumbnail…", &[], None),
+     ("edit.transform.scale", "Scale", &["Edit", "Transform"], None),
+     ("edit.transform.rotate", "Rotate", &["Edit", "Transform"], None),
+     ("edit.transform.skew", "Skew", &["Edit", "Transform"], None),
+@@ -202,6 +210,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
+     if let Some(r) = crate::plugin_ui::menu(app, id, &params) {
+         return r;
+     }
++    if let Some(r) = crate::ai_thumbnail_ui::menu(app, ctx, id, &params) {
++        return r;
++    }
+     if id == "window.panel.brushes" {
+         // Window › Brushes opens the Brush Settings window on its presets tab.
+         app.ui.panels.brush_settings = true;
+@@ -611,6 +622,9 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+     if let Some(e) = crate::view_cmds::is_enabled(app, id) {
+         return e;
+     }
++    if let Some(e) = crate::ai_thumbnail_ui::is_enabled(app, id) {
++        return e;
++    }
+     if let Some(e) = crate::plugin_ui::is_enabled(app, id) {
+         return e;
+     }
+@@ -818,6 +832,8 @@ pub fn is_live(id: &str) -> bool {
+ /// The command takes that item's submenu path, so it joins Photoshop's submenu even where the
+ /// catalogue spells it differently (Filter › "Other…").
+ const PLACE_AFTER: &[(&str, &str)] = &[
++    ("file.import.aiThumbnails", "file.import.notes"),
++    ("window.aiThumbnail", "window.panel.adjustments"),
+     ("file.newFromClipboard", "file.new"),
+     ("filter.render.relight", "filter.render.lightingEffects"),
+     ("view.resetView", "view.flipHorizontal"),
+diff --git a/crates/ui-egui/src/type_tool.rs b/crates/ui-egui/src/type_tool.rs
+index 55e1dad..a519acb 100644
+--- a/crates/ui-egui/src/type_tool.rs
++++ b/crates/ui-egui/src/type_tool.rs
+@@ -232,6 +232,25 @@ pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> boo
+     false
+ }
+ 
++/// A double-click on type with the Move tool (Photoshop): edit that layer with the caret at the
++/// click, switching to the Type tool. False when no type layer is under the point.
++pub fn edit_at(app: &mut PhotocraftApp, x: f64, y: f64) -> bool {
++    let Some(id) = hit_layer(app, x, y) else { return false };
++    commit(app);
++    let _ = app.session.select_layer(id);
++    let key = session_key(app);
++    if begin_edit(app, id, &key).is_err() {
++        return false;
++    }
++    let off = hit_offset(app, id, x, y);
++    app.ui.text_edit = Some(TextEdit { layer: id.0, caret: off, anchor: off, session: key, created: false, dragging: false, resize: None, preedit: None });
++    let vertical = app.session.active().and_then(|st| text_layer(&st.doc, id)).is_some_and(|t| t.orientation == photocraft_doc::text::Orientation::Vertical);
++    app.ui.tool = if vertical { crate::state::Tool::VerticalType } else { crate::state::Tool::Type };
++    app.ui.mask_target = false;
++    app.ui.vector_mask_target = false;
++    true
++}
++
+ pub fn pointer_move(app: &mut PhotocraftApp, x: f64, y: f64) {
+     let Some(ed) = app.ui.text_edit.clone() else { return };
+     if let Some(i) = ed.resize {
+diff --git a/crates/ui-egui/src/type_tool_tests.rs b/crates/ui-egui/src/type_tool_tests.rs
+index 741aaab..7a56784 100644
+--- a/crates/ui-egui/src/type_tool_tests.rs
++++ b/crates/ui-egui/src/type_tool_tests.rs
+@@ -1481,3 +1481,46 @@ mod multi_layer_formatting {
+         }
+     }
+ }
++
++/// Photoshop: double-clicking type with the Move tool switches to the Type tool and puts the
++/// caret where the pointer is, editing the existing layer (not a new one).
++#[test]
++fn move_tool_double_click_edits_type_at_the_click() {
++    let mut app = new_app();
++    let id = LayerId(app.run("type.create", json!({"text": "HOHOHO", "size": 90, "x": 300, "y": 420})).unwrap()["layer"].as_u64().unwrap());
++    app.ui.tool = crate::state::Tool::Move;
++    // 60 fps, so the two clicks fall inside egui's 0.3 s double-click window.
++    let mut h = Harness::builder().with_size(vec2(1200.0, 800.0)).with_step_dt(1.0 / 60.0).build_ui_state(
++        |ui, app: &mut PhotocraftApp| {
++            let ctx = ui.ctx().clone();
++            if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
++                return;
++            }
++            crate::shortcuts::handle(app, &ctx);
++            egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
++        },
++        app,
++    );
++    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
++    h.run_steps(4);
++    let p = glyph(&mut h, id, 3, 0.2);
++    h.hover_at(p);
++    h.run_steps(1);
++    for _ in 0..2 {
++        h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
++        h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
++        h.run_steps(1);
++    }
++    h.run_steps(2);
++    let app = h.state();
++    let ed = app.ui.text_edit.clone().expect("double-click enters type editing");
++    assert_eq!(ed.layer, id.0);
++    assert!(!ed.created, "edits the existing layer");
++    assert_eq!((ed.anchor, ed.caret), (3, 3));
++    assert_eq!(app.ui.tool, crate::state::Tool::Type);
++    // A double-click on empty canvas with the Move tool does nothing.
++    let mut app = new_app();
++    app.ui.tool = crate::state::Tool::Move;
++    assert!(!crate::type_tool::edit_at(&mut app, 50.0, 50.0));
++    assert!(app.ui.text_edit.is_none());
++}

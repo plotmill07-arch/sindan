@@ -3,3 +3,4 @@
 /models/*
 !/models/README.md
 /out/
+/.cache/

@@ -196,14 +196,15 @@ impl Ocr {
                     best = i;
                 }
             }
-            if best != 0 && best != last {
-                if let Some(ch) = self.dict.get(best) {
-                    text.push_str(ch);
-                    scores.push(bp);
-                    let f = ((step as f32 + 0.5) / t as f32 / content_frac).clamp(0.0, 1.0);
-                    for _ in ch.chars() {
-                        pos.push(f);
-                    }
+            if best != 0
+                && best != last
+                && let Some(ch) = self.dict.get(best)
+            {
+                text.push_str(ch);
+                scores.push(bp);
+                let f = ((step as f32 + 0.5) / t as f32 / content_frac).clamp(0.0, 1.0);
+                for _ in ch.chars() {
+                    pos.push(f);
                 }
             }
             last = best;

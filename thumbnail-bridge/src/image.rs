@@ -516,9 +516,12 @@ mod tests {
 
     #[test]
     fn components_and_kmeans() {
+        // (0,0)-(0,1) touch; (2,0) and (2,2) are isolated: three 8-connected components.
         let m = [true, false, true, true, false, false, false, false, true];
         let (_, n) = components(3, 3, &m);
-        assert_eq!(n, 2);
+        assert_eq!(n, 3);
+        let (_, n) = components(3, 3, &[true, false, false, false, true, false, false, false, true]);
+        assert_eq!(n, 1, "diagonal neighbours connect");
         let pts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [250.0, 250.0, 250.0], [251.0, 250.0, 250.0]];
         let (c, a) = kmeans(&pts, 2, 10);
         assert_eq!(c.len(), 2);
