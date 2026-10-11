@@ -1,0 +1,52 @@
+[package]
+name = "plotmill-bridge"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+description = "Plotmill AI Thumbnail Bridge: turn a flat AI-made YouTube thumbnail into an editable PhotoCraft document"
+publish = false
+
+[lib]
+name = "plotmill_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "plotmill"
+path = "src/main.rs"
+
+[dependencies]
+# PhotoCraft crates, from the checkout made by scripts/setup.sh (pinned revision).
+photocraft-geom = { path = "third_party/photocraft/crates/geom" }
+photocraft-color = { path = "third_party/photocraft/crates/color" }
+photocraft-raster = { path = "third_party/photocraft/crates/raster" }
+photocraft-doc = { path = "third_party/photocraft/crates/doc" }
+photocraft-algo = { path = "third_party/photocraft/crates/algo" }
+photocraft-text = { path = "third_party/photocraft/crates/text" }
+photocraft-compose = { path = "third_party/photocraft/crates/compose" }
+photocraft-io = { path = "third_party/photocraft/crates/io" }
+photocraft-format = { path = "third_party/photocraft/crates/format" }
+photocraft-engine = { path = "third_party/photocraft/crates/engine" }
+photocraft-automation = { path = "third_party/photocraft/crates/automation" }
+# ONNX Runtime, loaded at run time from the library scripts/setup.sh fetches (no build-time download).
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic", "api-22"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

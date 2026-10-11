@@ -1,0 +1,98 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "texts": [
+  {
+   "role": "badge",
+   "text": "【完全解説】",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 80,
+   "baseline": [
+    40,
+    105
+   ],
+   "fill": "#ffffff",
+   "stroke": null,
+   "shadow": null,
+   "bbox": [
+    40,
+    36,
+    440,
+    113
+   ]
+  },
+  {
+   "role": "title",
+   "text": "初心者でも",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 96,
+   "baseline": [
+    60,
+    300
+   ],
+   "fill": "#141414",
+   "stroke": {
+    "width": 6,
+    "color": "#ffffff"
+   },
+   "shadow": null,
+   "bbox": [
+    54,
+    212,
+    543,
+    315
+   ]
+  },
+  {
+   "role": "title",
+   "text": "すぐ分かる！",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 120,
+   "baseline": [
+    60,
+    460
+   ],
+   "fill": "#e60032",
+   "stroke": {
+    "width": 8,
+    "color": "#ffffff"
+   },
+   "shadow": {
+    "dx": 5,
+    "dy": 5,
+    "blur": 2
+   },
+   "bbox": [
+    52,
+    349,
+    777,
+    479
+   ]
+  },
+  {
+   "role": "subtitle",
+   "text": "保存版",
+   "family": "BIZ UDPGothic",
+   "weight": 400,
+   "size_px": 56,
+   "baseline": [
+    70,
+    600
+   ],
+   "fill": "#3c3c3c",
+   "stroke": null,
+   "shadow": null,
+   "bbox": [
+    70,
+    552,
+    238,
+    606
+   ]
+  }
+ ]
+}

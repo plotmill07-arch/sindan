@@ -1,0 +1,95 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "texts": [
+  {
+   "role": "title",
+   "text": "宇宙の謎を解明！",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 104,
+   "baseline": [
+    50,
+    220
+   ],
+   "fill": "#ffffff",
+   "stroke": {
+    "width": 9,
+    "color": "#000000"
+   },
+   "shadow": {
+    "dx": 6,
+    "dy": 6,
+    "blur": 4
+   },
+   "bbox": [
+    41,
+    122,
+    891,
+    240
+   ]
+  },
+  {
+   "role": "subtitle",
+   "text": "知らないと損する3つの事実",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 54,
+   "baseline": [
+    60,
+    495
+   ],
+   "fill": "#141414",
+   "stroke": null,
+   "shadow": null,
+   "bbox": [
+    60,
+    449,
+    741,
+    501
+   ]
+  },
+  {
+   "role": "bubble",
+   "text": "マジで!?",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 48,
+   "baseline": [
+    810,
+    132
+   ],
+   "fill": "#e61e1e",
+   "stroke": null,
+   "shadow": null,
+   "bbox": [
+    810,
+    90,
+    1005,
+    135
+   ]
+  },
+  {
+   "role": "badge",
+   "text": "最新",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 56,
+   "baseline": [
+    94,
+    610
+   ],
+   "fill": "#c81400",
+   "stroke": null,
+   "shadow": null,
+   "bbox": [
+    94,
+    562,
+    206,
+    616
+   ]
+  }
+ ]
+}

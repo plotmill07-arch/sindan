@@ -1,0 +1,55 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "texts": [
+  {
+   "role": "title",
+   "text": "星の一生",
+   "family": "Shippori Mincho",
+   "weight": 400,
+   "size_px": 150,
+   "baseline": [
+    60,
+    260
+   ],
+   "fill": "#ffffff",
+   "stroke": {
+    "width": 6,
+    "color": "#1e3cc8"
+   },
+   "shadow": {
+    "dx": 0,
+    "dy": 0,
+    "blur": 8
+   },
+   "bbox": [
+    54,
+    127,
+    666,
+    276
+   ]
+  },
+  {
+   "role": "subtitle",
+   "text": "138億年の物語",
+   "family": "Shippori Mincho",
+   "weight": 400,
+   "size_px": 64,
+   "baseline": [
+    70,
+    380
+   ],
+   "fill": "#ffd778",
+   "stroke": null,
+   "shadow": null,
+   "bbox": [
+    70,
+    324,
+    489,
+    386
+   ]
+  }
+ ]
+}

@@ -1,0 +1,82 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "texts": [
+  {
+   "role": "title",
+   "text": "たった1日で",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 88,
+   "baseline": [
+    470,
+    180
+   ],
+   "fill": "#fff000",
+   "stroke": {
+    "width": 8,
+    "color": "#780000"
+   },
+   "shadow": {
+    "dx": 5,
+    "dy": 5,
+    "blur": 3
+   },
+   "bbox": [
+    462,
+    98,
+    965,
+    195
+   ]
+  },
+  {
+   "role": "title",
+   "text": "人生が変わる",
+   "family": "BIZ UDPGothic",
+   "weight": 700,
+   "size_px": 110,
+   "baseline": [
+    460,
+    330
+   ],
+   "fill": "#ffffff",
+   "stroke": {
+    "width": 10,
+    "color": "#000000"
+   },
+   "shadow": {
+    "dx": 6,
+    "dy": 6,
+    "blur": 4
+   },
+   "bbox": [
+    450,
+    224,
+    1128,
+    351
+   ]
+  },
+  {
+   "role": "subtitle",
+   "text": "プロが教える習慣術",
+   "family": "BIZ UDPGothic",
+   "weight": 400,
+   "size_px": 60,
+   "baseline": [
+    520,
+    493
+   ],
+   "fill": "#ffffff",
+   "stroke": null,
+   "shadow": null,
+   "bbox": [
+    520,
+    440,
+    1049,
+    499
+   ]
+  }
+ ]
+}
